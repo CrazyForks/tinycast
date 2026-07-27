@@ -16,7 +16,10 @@ final class CurrencyRateStore: ObservableObject {
     static let providerURL = URL(string: "https://frankfurter.dev")!
     private nonisolated static let endpoint = URL(
         string: "https://api.frankfurter.dev/v2/rates?base=USD")!
-    static let refreshInterval: TimeInterval = 6 * 3600
+    /// Daily. The feed republishes about once a day, so asking more often just costs requests without
+    /// getting newer numbers — and the age is measured from the persisted snapshot, so relaunching
+    /// Tinycast repeatedly doesn't re-fetch.
+    static let refreshInterval: TimeInterval = 24 * 3600
     /// Shorter retry so a machine that was offline at launch picks rates up soon after it reconnects.
     private static let retryInterval: TimeInterval = 15 * 60
 

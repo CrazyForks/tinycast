@@ -95,8 +95,11 @@ from 84 central banks. One `GET api.frankfurter.dev/v2/rates?base=USD`, ~1.4 KB 
 with one flat `{date, base, quote, rate}` row per pair rather than a keyed table, and omits the
 base's own row — the store folds both into the `[code: rate]` shape `CurrencyRates` stores.
 
-The table is cached at `~/Library/Caches/<bundle-id>/currency-rates.json`, refreshed every 6h with a
-15-minute retry after a failure. Offline, the last snapshot keeps answering; with no snapshot at all
+The table is cached at `~/Library/Caches/<bundle-id>/currency-rates.json`, refreshed every 24h with a
+15-minute retry after a failure. The feed republishes about once a day, so a tighter interval would
+cost requests without returning newer numbers. Age is measured from the persisted `fetchedAt`, not
+from launch, so relaunching Tinycast never re-fetches a snapshot that is still fresh — a cold start
+with a same-day cache makes zero requests. Offline, the last snapshot keeps answering; with no snapshot at all
 the card says so rather than guessing, and a currency the feed doesn't quote reports
 `No exchange rate for <CODE>.` The store hands `CalcEngine.evaluate` a finished `CurrencyRates`
 value — the engine never fetches, which is what keeps it Foundation-only and testable. `CalcMemo`
