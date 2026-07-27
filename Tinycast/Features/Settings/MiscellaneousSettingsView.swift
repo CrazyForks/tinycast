@@ -6,6 +6,7 @@ struct MiscellaneousSettingsView: View {
     @ObservedObject private var currencyRates = AppCore.shared.currencyRates
     @State private var askingConsent = false
     @State private var refreshing = false
+    @State private var refreshFailed = false
 
     var body: some View {
         SettingsPane(
@@ -52,7 +53,8 @@ struct MiscellaneousSettingsView: View {
                         Button("Update Now") {
                             refreshing = true
                             Task {
-                                await currencyRates.refreshNow()
+                                let landed = await currencyRates.refreshNow()
+                                refreshFailed = !landed
                                 refreshing = false
                             }
                         }
@@ -94,6 +96,10 @@ struct MiscellaneousSettingsView: View {
     }
 
     private var ratesStatus: String {
+        if refreshing { return "Updating…" }
+        if refreshFailed {
+            return "Couldn't reach \(CurrencyRateStore.provider) — check your connection and try again."
+        }
         guard let fetched = currencyRates.rates?.fetchedAt else {
             return "Not downloaded yet — conversions will say so until the first update lands."
         }

@@ -39,11 +39,13 @@ sources on the ISO code and emits `CurrencyData.generated.swift`:
   Read from the pinned `cldr-json` checkout, not the host's `Intl`, whose output shifts with the
   local ICU version.
 
-Only *unambiguous* CLDR data is emitted — 26 signs and 129 nouns. CLDR itself supplies the sign
+Only *unambiguous* CLDR data is emitted — 26 signs and 128 nouns. CLDR itself supplies the sign
 tie-break: it writes every dollar but USD as `CA$`/`A$`/`NT$`, so plain `$` is claimed by exactly one
 currency. Bare Latin letters CLDR lists as symbols (`P` for BWP, `L` for HNL) are dropped, since a
 letter is indistinguishable from a word to the tokenizer. Accented nouns are emitted both as written
-and folded, so `krónur` and `kronur` both resolve.
+and folded, so `krónur` and `kronur` both resolve. The noun itself is the name's last word, which is
+only wrong where that word isn't one — `NOT_NOUNS` in the generator drops those ("Special Drawing
+Rights" is not a "rights").
 
 What's left hand-written in `CalcCurrency.swift` is one table, `contested`: the nouns several
 currencies share, where CLDR correctly refuses to choose and the calculator must. `dollars` is
@@ -81,6 +83,11 @@ can be withdrawn while a response is in flight. Revoking cancels the loop, drops
 deletes the cached file. The flag lives on the store, deliberately *not* in `AppSettings`:
 `SettingsBackup` mirrors that type field-for-field, and importing a config must never be able to
 grant network access.
+
+For "revoking deletes the rates" to be true there has to be exactly one copy, so the fetch runs on a
+private **cacheless** `URLSession` (`.ephemeral`, `urlCache = nil`) rather than `URLSession.shared`.
+The provider serves the table `Cache-Control: public, max-age=…`, so the shared session would store a
+second copy in the on-disk `URLCache` that deleting `currency-rates.json` doesn't touch.
 
 Rates come from `CurrencyRateStore` (`Core/`, owned by `AppCore`), which reads
 [Frankfurter](https://frankfurter.dev) — open source, no key, no account, no quota, rates blended
