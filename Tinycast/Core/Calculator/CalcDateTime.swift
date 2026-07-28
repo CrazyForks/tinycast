@@ -5,6 +5,7 @@ import Foundation
 ///   B. duration since a past moment — `days since 9jul`, `hrs since noon`
 ///   C. a moment ± a duration — `today + 3 weeks`, `now + 90 min`
 ///   D. difference between two moments — `jul 4 - today`
+/// `35 days ago`, `3 weeks from now` and a leading `+ 2 years` are sugar over C, rewritten before dispatch.
 enum CalcDateTime {
     /// Which occurrence of a bare, recurring date/time a phrase resolves to: the upcoming one (`till`) or the most recent past one (`since`). Absolute dates ignore it.
     private enum MomentBias { case future, past }
@@ -13,8 +14,9 @@ enum CalcDateTime {
         -> CalcResult?
     {
         let echo = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let query = echo.lowercased()
-        guard !query.isEmpty else { return nil }
+        guard !echo.isEmpty else { return nil }
+        // The card still echoes what was typed; only the parsed form is rewritten.
+        let query = desugar(echo.lowercased())
 
         // Cheap gate: our grammars always carry a connector, so app searches skip all the parsing.
         let hasUntil =
@@ -33,6 +35,25 @@ enum CalcDateTime {
             return result
         }
         return nil
+    }
+
+    /// Rewrites the implicit-base phrasings into grammar C so there's one place that does date arithmetic:
+    /// `35 days ago` → `today - 35 days`, `3 weeks from now` → `today + 3 weeks`, `+ 2 years` → `today + 2 years`.
+    /// Sub-day durations resolve against `now` rather than midnight, matching grammar A's reference choice.
+    /// A phrase that isn't a duration is returned untouched, so `long ago` and `chicago` reach no grammar at all.
+    private static func desugar(_ query: String) -> String {
+        for (suffix, op) in [(" ago", "-"), (" from now", "+")] where query.hasSuffix(suffix) {
+            let phrase = String(query.dropLast(suffix.count))
+            guard let duration = parseDurationPhrase(phrase) else { return query }
+            return "\(duration.subDay ? "now" : "today") \(op) \(phrase)"
+        }
+        if query.hasPrefix("+ ") || query.hasPrefix("- ") {
+            guard let duration = parseDurationPhrase(String(query.dropFirst(2))) else {
+                return query
+            }
+            return "\(duration.subDay ? "now" : "today") \(query)"
+        }
+        return query
     }
 
     // MARK: - Grammar A: duration until a moment
@@ -59,6 +80,10 @@ enum CalcDateTime {
         case .week:
             let days = calendar.dateComponents([.day], from: reference, to: target).day ?? 0
             value = Double(days) / 7
+        case .month:
+            value = Double(calendar.dateComponents([.month], from: reference, to: target).month ?? 0)
+        case .year:
+            value = Double(calendar.dateComponents([.year], from: reference, to: target).year ?? 0)
         case .subSecond:
             value = target.timeIntervalSince(reference) / unit.seconds
         }
@@ -103,6 +128,10 @@ enum CalcDateTime {
         case .week:
             let days = calendar.dateComponents([.day], from: past, to: reference).day ?? 0
             value = Double(days) / 7
+        case .month:
+            value = Double(calendar.dateComponents([.month], from: past, to: reference).month ?? 0)
+        case .year:
+            value = Double(calendar.dateComponents([.year], from: past, to: reference).year ?? 0)
         case .subSecond:
             value = reference.timeIntervalSince(past) / unit.seconds
         }
@@ -195,6 +224,13 @@ enum CalcDateTime {
     private static func parseMoment(
         _ phrase: String, now: Date, calendar: Calendar, bias: MomentBias = .future
     ) -> Moment? {
+        // Multi-word event names are matched before atomizing, so they sidestep the two-atom limit below.
+        let squashed = phrase.filter { !$0.isWhitespace && $0 != "'" && $0 != "-" }
+        if let event = eventByName[squashed] {
+            return monthDayMoment(
+                month: event.month, day: event.day, now: now, calendar: calendar, bias: bias)
+        }
+
         let atoms = atomize(phrase)
         switch atoms.count {
         case 1:
@@ -352,7 +388,8 @@ enum CalcDateTime {
 
     // MARK: - Durations
 
-    private enum DurKind { case subSecond, day, week }
+    /// Months and years aren't a fixed number of seconds, so they're counted with calendar components.
+    private enum DurKind { case subSecond, day, week, month, year }
 
     private struct DurUnit {
         let seconds: Double
@@ -365,6 +402,10 @@ enum CalcDateTime {
     private static func durationUnit(_ phrase: String) -> DurUnit? {
         guard let last = phrase.split(separator: " ").last.map(String.init) else { return nil }
         switch last {
+        case "mo", "month", "months":
+            return DurUnit(seconds: 0, singular: "month", plural: "months", kind: .month)
+        case "y", "yr", "yrs", "year", "years":
+            return DurUnit(seconds: 0, singular: "year", plural: "years", kind: .year)
         case "s", "sec", "secs", "second", "seconds":
             return DurUnit(seconds: 1, singular: "second", plural: "seconds", kind: .subSecond)
         case "min", "mins", "minute", "minutes":
@@ -391,6 +432,8 @@ enum CalcDateTime {
         case "min", "mins", "minute", "minutes": return (count, .minute, true)
         case "h", "hr", "hrs", "hour", "hours": return (count, .hour, true)
         case "d", "day", "days": return (count, .day, false)
+        case "mo", "month", "months": return (count, .month, false)
+        case "y", "yr", "yrs", "year", "years": return (count, .year, false)
         case "wk", "week", "weeks":
             // Absurd counts overflow the fold to days; degrade to no card rather than trap.
             let (days, overflow) = count.multipliedReportingOverflow(by: 7)
@@ -511,6 +554,15 @@ enum CalcDateTime {
     ]
 
     /// Gregorian weekday numbers (Sunday = 1).
+    /// Fixed-date holidays only, keyed by the name with spaces, hyphens and apostrophes removed. Movable
+    /// ones (easter, thanksgiving, ramadan, lunar new year) are computed and/or regional — there is no
+    /// source of truth for them in-repo, and a confidently wrong date is worse than no card.
+    private static let eventByName: [String: (month: Int, day: Int)] = [
+        "christmas": (12, 25), "xmas": (12, 25), "christmaseve": (12, 24),
+        "newyear": (1, 1), "newyears": (1, 1), "newyearsday": (1, 1), "newyearseve": (12, 31),
+        "halloween": (10, 31), "valentines": (2, 14), "valentinesday": (2, 14),
+    ]
+
     private static let weekdayByName: [String: Int] = [
         "sunday": 1, "sun": 1, "monday": 2, "mon": 2, "tuesday": 3, "tue": 3, "tues": 3,
         "wednesday": 4, "wed": 4, "thursday": 5, "thu": 5, "thurs": 5, "friday": 6, "fri": 6,

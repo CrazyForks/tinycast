@@ -549,6 +549,45 @@ struct CalcTests {
         // Date ± duration now carries the resolved start as a source badge
         expectBadgesAt("today + 3 weeks", source: "Friday, 24 July", target: "Result")
 
+        // Implicit-base phrasings, rewritten onto `moment ± duration` before dispatch
+        expectDisplayAt("35 days ago", "Friday, 19 June")
+        expectBadgesAt("35 days ago", source: "Friday, 24 July", target: "Result")
+        expectDisplayAt("3 weeks from now", "Friday, 14 August")
+        expectDisplayAt("35 minutes ago", "Thursday, 23 July at 11:43 PM")  // sub-day works off now
+        expectDisplayAt("2 hours from now", "Friday, 24 July at 2:18 AM")
+        expectDisplayAt("1 day ago", "Thursday, 23 July")
+        expectDisplayAt("+ 2 years", "Monday, 24 July, 2028")
+        expectDisplayAt("- 3 days", "Tuesday, 21 July")
+        expectDisplayAt("+ 90 min", "Friday, 24 July at 1:48 AM")
+        expectNilAt("chicago")  // ` ago` is matched as a suffix, never mid-word
+        expectNilAt("long ago")
+        expectNilAt("ago")
+        expectNilAt("from now")
+        expectNilAt("+ pizza")
+        expectNilAt("- 3 pizzas")
+
+        // Months and years, counted with calendar components rather than a seconds divisor
+        expectDisplayAt("today + 3 months", "Saturday, 24 October")
+        expectDisplayAt("today + 2 years", "Monday, 24 July, 2028")
+        expectDisplayAt("today - 6 months", "Saturday, 24 January")
+        expectDisplayAt("today + 1 month", "Monday, 24 August")
+        expectDisplayAt("months till christmas", "5 months")
+        expectDisplayAt("years till 2030-01-01", "3 years")
+        expectNilAt("today + 3 fortnights")
+
+        // Fixed-date holidays, matched before atomizing so multi-word names dodge the two-atom limit
+        expectDisplayAt("days till christmas", "154 days")
+        expectBadgesAt(
+            "days till christmas", source: "Friday, 24 July", target: "Friday, 25 December")
+        expectDisplayAt("days till xmas", "154 days")
+        expectDisplayAt("days until new year", "161 days")
+        expectDisplayAt("days till halloween", "99 days")
+        expectDisplayAt("days till valentines day", "205 days")
+        expectDisplayAt("weeks till christmas", "22 weeks")
+        expectDisplayAt("days since christmas", "211 days")
+        expectNilAt("christmas")  // a bare event name is still a search
+        expectNilAt("days till atlantis")
+
         // Currency — against the fixed `fx` table below (1 USD = 0.92 EUR = 0.79 GBP = 157 JPY)
         expectDisplay("1 euro to dollars", "1.09 USD")
         expectExpression("1 euro to dollars", "1 EUR")

@@ -73,6 +73,33 @@ word such as `of` does not, so `10 of` stays a search. When the prefix was a con
 echoes the typed text (`10km to mi ×`) rather than the conversion's own shortened echo, and
 `tokenQuery` keeps radix prefixes so `0xff -` still reads Hexadecimal → Decimal.
 
+## Date and time
+
+`CalcDateTime` has four grammars — duration until a moment, duration since one, `moment ± duration`,
+and the difference between two moments — behind a cheap gate that requires the query to carry a
+connector (` till `, ` until `, ` til `, ` since `, ` + `, ` - `). That gate is the whole feature
+surface: without it every app search would run the date parser.
+
+Rather than add grammars, the implicit-base phrasings are **rewritten onto `moment ± duration`** by
+`desugar` before dispatch, so one place still does the arithmetic: `35 days ago` → `today - 35 days`,
+`3 weeks from now` → `today + 3 weeks`, and a leading `+ 2 years` → `today + 2 years`. Sub-day
+durations resolve against `now` instead of midnight, matching what grammar A already does, so
+`35 minutes ago` keeps its time-of-day. A phrase that isn't a duration is returned untouched and
+reaches no grammar at all, which is why `long ago` is silent — and ` ago` is matched as a *suffix*, so
+`chicago` never triggers it. The card always echoes what was typed, not the rewritten form.
+
+Durations cover seconds through years. Months and years are counted with `calendar.dateComponents`
+rather than a seconds divisor, because neither is a fixed length.
+
+`eventByName` holds **fixed-date** holidays only (christmas, new year, halloween, valentines), keyed
+by the name with spaces, hyphens and apostrophes removed. Matching happens before atomizing, so a
+multi-word name dodges the two-atom limit on moments. Movable or regional holidays — easter,
+thanksgiving, ramadan, lunar new year — are deliberately absent: they're computed and/or vary by
+region, there's no source of truth in-repo, and a confidently wrong date is worse than no card.
+
+Not built, and worth knowing why: **timezones and cities** (`time in tokyo`) are out of scope, and
+**workhours / workdays** would require inventing an 8h/5d week and silently ignoring holidays.
+
 ## Arithmetic vocabulary
 
 `CalcParser.functions` covers trig (`sin`/`cos`/`tan`, their inverse `asin`/`arcsin` and hyperbolic
