@@ -71,6 +71,38 @@ word such as `of` does not, so `10 of` stays a search. When the prefix was a con
 echoes the typed text (`10km to mi ×`) rather than the conversion's own shortened echo, and
 `tokenQuery` keeps radix prefixes so `0xff -` still reads Hexadecimal → Decimal.
 
+## Arithmetic vocabulary
+
+`CalcParser.functions` covers trig (`sin`/`cos`/`tan`, their inverse `asin`/`arcsin` and hyperbolic
+`sinh`/`asinh` forms, and the reciprocal `cot`/`sec`/`csc` family incl. `coth`/`acot`), logs
+(`log` base 10, `log2`, `ln`, `exp`), roots (`sqrt`, `cbrt`) and rounding (`floor`, `ceil`, `round`,
+`trunc`, `abs`, `sign`). At a pole the reciprocal functions divide by zero and the `isFinite` guard in
+`evaluate` turns ±inf into a no-card, which is also how out-of-domain input (`asin(2)`) stays silent.
+
+`CalcParser.binaryFunctions` holds the comma-separated two-argument forms: `min`, `max`, `pow`, `mod`
+and `log(8, 2)` for an explicit base. A name may live in both tables — the comma decides, so `log(1000)`
+is still base 10. `,` only becomes an argument separator outside a number; between digits it is still
+consumed as a grouping separator, so `1,000 + 234` is unaffected.
+
+Modulo is spelled `mod` rather than `%`, because `%` is the percent postfix. Internally `mod` reports
+`%` as its operator character, which is unambiguous since a `%` *token* is consumed as a postfix in
+`parseOperand` and never reaches `peekBinary`.
+
+Written-out operators are folded to symbols by a normalization pass at the end of `CalcTokenizer.tokenize`,
+so no parser learns a second grammar: `4 power 6`, `2 to the power of 10`, `square root of 625`,
+`5 squared`, `3 cubed`, `50 percent of 200`, `10 times 5`, `12 divided by 4`, `7 plus 3`. Longest phrase
+wins, so `to the power of` beats `power`. These words are common in app names, so they only mean
+something in a complete expression — `power`, `times`, `google plus` and `new york times` all stay searches.
+
+Numbers accept scientific notation (`1e6`, `1.5e-3`) — only with digits behind the exponent, so `2e`
+remains 2 · e — and multiplier suffixes `k`/`mn`/`bn`/`tn` plus the words `thousand`/`million`/`billion`/
+`trillion`. Bare `m` and `b` are deliberately **not** multipliers: they already mean metres and bytes,
+so `5m` is a length and `5b` a size. Shorthand numbers are tokenized as `.compactNumber`, which is what
+earns them a card on their own (`1e6` → `1,000,000`) where a plain lone literal stays an app search.
+
+`min` and `sec` are both function names and time-unit aliases. The unit path runs before plain
+arithmetic, so `90 min to hr` is time and `min(3, 9)` is the function; neither shadows the other.
+
 ## Currency
 
 `CalcCurrency` mirrors `CalcUnits`' shape: a lookup table plus a `parseConversion` over the same

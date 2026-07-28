@@ -62,7 +62,7 @@ enum CalcEngine {
                 let display = CalcFormatter.grouped(String(value))
                 return CalcResult(
                     expression: query,
-                    sourceBadge: "Hexadecimal", targetBadge: "Decimal",
+                    sourceBadge: baseName(forRadix: radix), targetBadge: "Decimal",
                     payload: .value(display: display, copyText: String(value)))
             }
             if case .compactNumber(let value) = tokens[0] {

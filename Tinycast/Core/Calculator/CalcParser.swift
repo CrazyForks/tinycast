@@ -59,13 +59,27 @@ enum CalcTokenizer {
                     }
                     i += 1
                 }
+                // Scientific notation, but only with digits behind the exponent so `2e` stays 2 · e.
+                var shorthand = false
+                if i < chars.count, chars[i] == "e" || chars[i] == "E" {
+                    var start = i + 1
+                    if start < chars.count, chars[start] == "+" || chars[start] == "-" { start += 1 }
+                    if start < chars.count, isDigit(chars[start]) {
+                        var end = start
+                        while end < chars.count, isDigit(chars[end]) { end += 1 }
+                        text += String(chars[i..<end])
+                        i = end
+                        shorthand = true
+                    }
+                }
                 guard let value = Double(text) else { return nil }
-                // Attached `k` means ×1,000; whitespace keeps Kelvin explicit, and `10kg` remains a unit literal.
-                if i < chars.count, chars[i] == "k" || chars[i] == "K", isCompactSuffix(chars, i) {
-                    tokens.append(.compactNumber(value * 1_000))
-                    i += 1
+                // Attached multiplier (`10k`, `2.5mn`); whitespace keeps Kelvin explicit, and `10kg` remains a unit literal.
+                if let multiplier = compactMultiplier(chars, i) {
+                    tokens.append(.compactNumber(value * multiplier.factor))
+                    i += multiplier.length
                 } else {
-                    tokens.append(.number(value))
+                    // Shorthand earns a card on its own, since echoing the expanded number is the useful answer.
+                    tokens.append(shorthand ? .compactNumber(value) : .number(value))
                 }
                 continue
             }
@@ -110,7 +124,8 @@ enum CalcTokenizer {
             }
 
             switch ch {
-            case "+", "(", ")", "!", "%", "^":
+            // A `,` between digits was already consumed as a grouping separator above; here it can only be an argument separator.
+            case "+", "(", ")", "!", "%", "^", ",":
                 tokens.append(.op(ch))
             case "*", "×":
                 tokens.append(.op("*"))
@@ -135,14 +150,102 @@ enum CalcTokenizer {
             }
             i += 1
         }
-        return tokens
+        return normalize(tokens)
     }
 
-    /// Whether the `k` at `index` is a thousands suffix rather than Kelvin or the head of a unit: true at the end of the number, before a non-letter, or before a currency word (`1kUSD`) — never when an explicit temperature target follows (`273.15K to C`).
-    private static func isCompactSuffix(_ chars: [Character], _ index: Int) -> Bool {
-        let next = index + 1
+    /// Written-out forms folded to the symbols the parsers already understand, so `square root of 625`
+    /// and `4 power 6` need no grammar of their own. Longest phrase first — `to the power of` must win over `power`.
+    private static let phrases: [(words: [String], tokens: [CalcToken])] = [
+        (["to", "the", "power", "of"], [.op("^")]),
+        (["square", "root", "of"], [.ident("sqrt")]),
+        (["cube", "root", "of"], [.ident("cbrt")]),
+        (["square", "root"], [.ident("sqrt")]),
+        (["cube", "root"], [.ident("cbrt")]),
+        (["power", "of"], [.op("^")]),
+        (["power"], [.op("^")]),
+        (["squared"], [.op("^"), .number(2)]),
+        (["cubed"], [.op("^"), .number(3)]),
+        (["percent"], [.op("%")]),
+        (["divided", "by"], [.op("/")]),
+        (["multiplied", "by"], [.op("*")]),
+        (["times"], [.op("*")]),
+        (["plus"], [.op("+")]),
+        (["minus"], [.op("-")]),
+    ]
+
+    /// Multiplier words, folded into the preceding number: `5 million`.
+    private static let multiplierWords: [String: Double] = [
+        "million": 1e6, "billion": 1e9, "trillion": 1e12, "thousand": 1e3,
+    ]
+
+    private static func normalize(_ tokens: [CalcToken]) -> [CalcToken] {
+        var output: [CalcToken] = []
+        output.reserveCapacity(tokens.count)
+        var index = 0
+        while index < tokens.count {
+            if case .ident(let name) = tokens[index], let factor = multiplierWords[name],
+                let previous = output.last, let amount = numberValue(previous)
+            {
+                output[output.count - 1] = .compactNumber(amount * factor)
+                index += 1
+                continue
+            }
+            if let phrase = matchPhrase(tokens, at: index) {
+                output.append(contentsOf: phrase.tokens)
+                index += phrase.words.count
+                continue
+            }
+            output.append(tokens[index])
+            index += 1
+        }
+        return output
+    }
+
+    private static func matchPhrase(
+        _ tokens: [CalcToken], at index: Int
+    ) -> (words: [String], tokens: [CalcToken])? {
+        for phrase in phrases where index + phrase.words.count <= tokens.count {
+            let matches = phrase.words.enumerated().allSatisfy { offset, word in
+                tokens[index + offset] == .ident(word)
+            }
+            if matches { return phrase }
+        }
+        return nil
+    }
+
+    private static func numberValue(_ token: CalcToken) -> Double? {
+        switch token {
+        case .number(let value), .compactNumber(let value):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    /// Attached number multipliers. Only unambiguous spellings: bare `m` is already metres and bare `b` bytes.
+    private static let multipliers: [(text: String, factor: Double)] = [
+        ("mn", 1e6), ("bn", 1e9), ("tn", 1e12), ("k", 1e3),
+    ]
+
+    private static func compactMultiplier(
+        _ chars: [Character], _ index: Int
+    ) -> (factor: Double, length: Int)? {
+        for multiplier in multipliers {
+            let length = multiplier.text.count
+            guard index + length <= chars.count,
+                String(chars[index..<(index + length)]).lowercased() == multiplier.text,
+                isCompactSuffix(chars, after: index + length)
+            else { continue }
+            // `k` is also Kelvin, so an explicit temperature target wins: `273.15K to C`.
+            if multiplier.text == "k", isTemperatureConversion(chars, from: index + 1) { continue }
+            return (multiplier.factor, length)
+        }
+        return nil
+    }
+
+    /// Whether a multiplier suffix really is one rather than the head of a unit: true at the end of the number, before a non-letter, or before a currency word (`1kUSD`).
+    private static func isCompactSuffix(_ chars: [Character], after next: Int) -> Bool {
         guard next < chars.count else { return true }
-        if isTemperatureConversion(chars, from: next) { return false }
         guard chars[next].isLetter else { return true }
 
         var end = next
@@ -176,12 +279,31 @@ enum CalcParser {
 
     // Capture-free closures (not bare C function references) so every entry infers `@Sendable` under both language modes — the harness compiles this in Swift 5.
     fileprivate static let functions: [String: @Sendable (Double) -> Double] = [
-        "sqrt": { sqrt($0) }, "log": { log10($0) }, "ln": { log($0) }, "sin": { sin($0) },
-        "cos": { cos($0) }, "tan": { tan($0) }, "abs": { abs($0) }, "floor": { floor($0) },
-        "ceil": { ceil($0) }, "round": { $0.rounded() },
+        "sqrt": { sqrt($0) }, "cbrt": { cbrt($0) }, "log": { log10($0) }, "log2": { log2($0) },
+        "ln": { log($0) }, "exp": { exp($0) }, "abs": { abs($0) }, "floor": { floor($0) },
+        "ceil": { ceil($0) }, "round": { $0.rounded() }, "trunc": { $0.rounded(.towardZero) },
+        "sign": { $0 == 0 ? 0 : ($0 < 0 ? -1 : 1) },
+        "sin": { sin($0) }, "cos": { cos($0) }, "tan": { tan($0) },
+        "asin": { asin($0) }, "acos": { acos($0) }, "atan": { atan($0) },
+        "arcsin": { asin($0) }, "arccos": { acos($0) }, "arctan": { atan($0) },
+        "sinh": { sinh($0) }, "cosh": { cosh($0) }, "tanh": { tanh($0) },
+        "asinh": { asinh($0) }, "acosh": { acosh($0) }, "atanh": { atanh($0) },
+        // Reciprocal trig: at a pole the division yields ±inf, which `evaluate`'s isFinite guard turns into a no-card.
+        "cot": { 1 / tan($0) }, "sec": { 1 / cos($0) }, "csc": { 1 / sin($0) },
+        "coth": { 1 / tanh($0) }, "sech": { 1 / cosh($0) }, "csch": { 1 / sinh($0) },
+        "acot": { atan(1 / $0) }, "asec": { acos(1 / $0) }, "acsc": { asin(1 / $0) },
     ]
 
-    fileprivate static let constants: [String: Double] = ["pi": .pi, "π": .pi, "e": M_E]
+    /// Two-argument functions, comma-separated. `log(8, 2)` is log base 2, alongside the one-argument base-10 `log`.
+    fileprivate static let binaryFunctions: [String: @Sendable (Double, Double) -> Double] = [
+        "min": { Swift.min($0, $1) }, "max": { Swift.max($0, $1) },
+        "mod": { fmod($0, $1) }, "pow": { pow($0, $1) },
+        "log": { log($0) / log($1) },
+    ]
+
+    fileprivate static let constants: [String: Double] = [
+        "pi": .pi, "π": .pi, "e": M_E, "tau": .pi * 2, "τ": .pi * 2, "phi": (1 + 5.squareRoot()) / 2,
+    ]
 
     /// Factorial for non-negative integers; 170! is the last value representable as a Double.
     static func factorial(_ value: Double) -> Double? {
@@ -232,6 +354,8 @@ private struct Parser {
         case .op(let op) where op == "+" || op == "-": return (op, 10, 11)
         case .op(let op) where op == "*" || op == "/": return (op, 20, 21)
         case .ident("of"): return ("*", 20, 21)
+        // `%` is taken by the percent postfix, so modulo is spelled out. It never reaches here as an op token.
+        case .ident("mod"): return ("%", 20, 21)
         case .op("^"): return ("^", 30, 30)  // right-associative: 2^3^2 = 512
         default: return nil
         }
@@ -252,6 +376,7 @@ private struct Parser {
         case "*": result = lhs.effective * rhs.effective
         case "/": result = lhs.effective / rhs.effective
         case "^": result = pow(lhs.effective, rhs.effective)
+        case "%": result = fmod(lhs.effective, rhs.effective)
         default: return nil
         }
         return Value(value: result)
@@ -309,22 +434,30 @@ private struct Parser {
                 pos += 1
                 return Value(value: constant)
             }
-            if let fn = CalcParser.functions[name] {
-                pos += 1
-                let argument: Value?
-                if case .op("(") = current {
-                    pos += 1
-                    argument = parseExpression(minBP: 0)
-                    guard case .op(")") = current else { return nil }
-                    pos += 1
-                } else {
-                    // Bare application: `sqrt 64`, `sin 30deg` — the argument is one operand, so `sqrt 64 + 36` is sqrt(64) + 36.
-                    argument = parseOperand()
-                }
-                guard let argument else { return nil }
-                return Value(value: fn(argument.effective))
+            let unary = CalcParser.functions[name]
+            let binary = CalcParser.binaryFunctions[name]
+            guard unary != nil || binary != nil else { return nil }
+            pos += 1
+
+            guard case .op("(") = current else {
+                // Bare application: `sqrt 64`, `sin 30deg` — the argument is one operand, so `sqrt 64 + 36` is sqrt(64) + 36.
+                guard let unary, let argument = parseOperand() else { return nil }
+                return Value(value: unary(argument.effective))
             }
-            return nil
+            pos += 1
+            guard let first = parseExpression(minBP: 0) else { return nil }
+            // A comma picks the two-argument reading, so `log` serves both base 10 and an explicit base.
+            if case .op(",") = current, let binary {
+                pos += 1
+                guard let second = parseExpression(minBP: 0), case .op(")") = current else {
+                    return nil
+                }
+                pos += 1
+                return Value(value: binary(first.effective, second.effective))
+            }
+            guard case .op(")") = current, let unary else { return nil }
+            pos += 1
+            return Value(value: unary(first.effective))
         default:
             return nil
         }

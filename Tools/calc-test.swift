@@ -49,6 +49,97 @@ struct CalcTests {
         expectDisplay("round(2.5)", "3")
         expectDisplay("SQRT(64)", "8")  // case-insensitive
 
+        // Inverse, hyperbolic and reciprocal trig
+        expectDisplay("asin(1)", "1.570796327")
+        expectDisplay("acos(1)", "0")
+        expectDisplay("atan(1)", "0.7853981634")
+        expectDisplay("arcsin(0.5)", "0.5235987756")
+        expectDisplay("sinh(1)", "1.175201194")
+        expectDisplay("cosh(0)", "1")
+        expectDisplay("tanh(0)", "0")
+        expectDisplay("asinh(1)", "0.881373587")
+        expectDisplay("atanh(0.5)", "0.5493061443")
+        expectDisplay("cot(1)", "0.6420926159")
+        expectDisplay("sec(0)", "1")
+        expectDisplay("csc(1)", "1.188395106")
+        expectDisplay("coth(1)", "1.313035285")
+        expectDisplay("acot(1)", "0.7853981634")
+        expectNil("asin(2)")  // out of domain — NaN stays a no-card
+        expectNil("acosh(0.5)")
+
+        // Remaining single-argument functions
+        expectDisplay("cbrt(27)", "3")
+        expectDisplay("log2(1024)", "10")
+        expectDisplay("exp(1)", "2.718281828")
+        expectDisplay("trunc(2.9)", "2")
+        expectDisplay("sign(-5)", "-1")
+        expectDisplay("sign(0)", "0")
+
+        // Two-argument functions — a comma picks the binary reading, so `log` serves both bases
+        expectDisplay("log(8, 2)", "3")
+        expectDisplay("log(1000)", "3")
+        expectDisplay("min(3, 9)", "3")
+        expectDisplay("max(3, 9)", "9")
+        expectDisplay("pow(2, 10)", "1,024")
+        expectDisplay("mod(10, 3)", "1")
+        expectDisplay("10 mod 3", "1")
+        expectNil("min(3)")  // no unary reading
+        expectNil("min 3")
+        // `min` and `sec` are also time-unit aliases; the unit path runs first and keeps them
+        expectDisplay("90 min to hr", "1.5 hr")
+        expectDisplay("90 sec to min", "1.5 min")
+        expectDisplay("2 min + 30 sec", "150 s")
+        expectNil("min")
+        expectNil("sec")
+
+        // Written-out operators
+        expectDisplay("4 power 6", "4,096")
+        expectDisplay("2 to the power of 10", "1,024")
+        expectDisplay("square root of 625", "25")
+        expectDisplay("square root 64", "8")
+        expectDisplay("cube root of 27", "3")
+        expectDisplay("5 squared", "25")
+        expectDisplay("3 cubed", "27")
+        expectDisplay("50 percent of 200", "100")
+        expectDisplay("10 times 5", "50")
+        expectDisplay("12 divided by 4", "3")
+        expectDisplay("7 plus 3", "10")
+        expectDisplay("9 minus 4", "5")
+        expectDisplay("100 multiplied by 2", "200")
+        // The words are common in app names, so alone or unpaired they must stay searches
+        expectNil("power")
+        expectNil("times")
+        expectNil("plus")
+        expectNil("minus")
+        expectNil("percent")
+        expectNil("new york times")
+        expectNil("google plus")
+        expectNil("powerpoint")
+        expectNil("square")
+
+        // Scientific notation, and the multiplier spellings that can't mean a unit
+        expectDisplay("1e6", "1,000,000")
+        expectDisplay("2e10", "20,000,000,000")
+        expectDisplay("1.5e-3", "0.0015")
+        expectDisplay("2e3 + 1", "2,001")
+        expectNil("2e")  // no digits behind the exponent: still 2 · e
+        expectDisplay("2.5mn", "2,500,000")
+        expectDisplay("3bn", "3,000,000,000")
+        expectDisplay("1tn", "1,000,000,000,000")
+        expectDisplay("5 million", "5,000,000")
+        expectDisplay("3 billion", "3,000,000,000")
+        expectDisplay("1.5 thousand", "1,500")
+        expectDisplay("10mn + 5mn", "15,000,000")
+        expectDisplay("3 million dollars to eur", "2,760,000.00 EUR")
+        expectNil("million")
+        expectDisplay("5m", "16 feet 4.850393701 inches")  // bare `m` stays metres, never millions
+        expectDisplay("5b", "40 bit")  // and bare `b` stays bytes
+
+        // A lone radix literal names its own base
+        expectBadges("0b1010", source: "Binary", target: "Decimal")
+        expectBadges("0o777", source: "Octal", target: "Decimal")
+        expectBadges("0xff", source: "Hexadecimal", target: "Decimal")
+
         // Constants
         expectDisplay("2*pi", "6.283185307")
         expectDisplay("π*2", "6.283185307")
