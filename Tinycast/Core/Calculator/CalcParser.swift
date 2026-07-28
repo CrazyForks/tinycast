@@ -2,6 +2,8 @@ import Foundation
 
 enum CalcToken: Equatable, Sendable {
     case number(Double)
+    /// An attached thousands suffix (`10k` / `2.5K`), kept distinct so a lone shorthand still earns a calculator card.
+    case compactNumber(Double)
     /// Radix-prefixed integer literal (0xff / 0b1010 / 0o777), kept exact for base conversion.
     case intLiteral(UInt64, radix: Int)
     /// Lowercased word (function, constant, unit, or connector); `²`/`³` fold to "2"/"3" so `m²` and `m2` match, while `°` is kept.
@@ -58,11 +60,52 @@ enum CalcTokenizer {
                     i += 1
                 }
                 guard let value = Double(text) else { return nil }
-                tokens.append(.number(value))
+                // Attached `k` means ×1,000; whitespace keeps Kelvin explicit, and `10kg` remains a unit literal.
+                let compactCurrencySuffix: Bool = {
+                    guard i + 1 < chars.count, chars[i + 1].isLetter else { return false }
+                    var end = i + 1
+                    while end < chars.count, chars[end].isLetter { end += 1 }
+                    return CalcCurrency.byName[String(chars[(i + 1)..<end]).lowercased()] != nil
+                }()
+                let attachedTemperatureConversion: Bool = {
+                    guard i + 1 < chars.count else { return false }
+                    let remainder = String(chars[(i + 1)...])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    for connector in ["to", "in", "->", "→"]
+                    where remainder.hasPrefix(connector) {
+                        let target = remainder.dropFirst(connector.count)
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        if CalcUnits.byName[target]?.category == .temperature { return true }
+                    }
+                    return false
+                }()
+                if i < chars.count, (chars[i] == "k" || chars[i] == "K"),
+                    !attachedTemperatureConversion,
+                    i + 1 == chars.count || !chars[i + 1].isLetter || compactCurrencySuffix
+                {
+                    tokens.append(.compactNumber(value * 1_000))
+                    i += 1
+                } else {
+                    tokens.append(.number(value))
+                }
                 continue
             }
 
             if ch.isLetter || ch == "°" {
+                // Split an attached currency prefix (`USD1K`) before the generic ident scanner absorbs its digits.
+                if ch.isLetter {
+                    var letterEnd = i
+                    while letterEnd < chars.count, chars[letterEnd].isLetter { letterEnd += 1 }
+                    if letterEnd < chars.count, isDigit(chars[letterEnd]) {
+                        let prefix = String(chars[i..<letterEnd]).lowercased()
+                        if CalcUnits.byName[prefix] == nil, CalcCurrency.byName[prefix] != nil {
+                            tokens.append(.ident(prefix))
+                            i = letterEnd
+                            continue
+                        }
+                    }
+                }
                 var text = ""
                 while i < chars.count {
                     let c = chars[i]
@@ -224,6 +267,9 @@ private struct Parser {
     private mutating func parsePrefix() -> Value? {
         switch current {
         case .number(let n):
+            pos += 1
+            return Value(value: n)
+        case .compactNumber(let n):
             pos += 1
             return Value(value: n)
         case .intLiteral(let n, _):
