@@ -27,7 +27,7 @@ struct ClipboardTests {
 
     // MARK: - Cases
 
-    /// Pins stack in pin order, newest pin first, regardless of how old the entries are.
+    /// Pins stack in pin order, oldest pin first, regardless of how old the entries are.
     static func pinOrder() {
         withStore { store, _ in
             store.addText("oldest", sourceBundleID: nil)
@@ -39,12 +39,12 @@ struct ClipboardTests {
 
             store.togglePinned(item(store, "middle"))
             expect(
-                texts(store) == ["middle", "oldest", "newest"],
-                "second pin goes above the first, and does not sort by recency")
+                texts(store) == ["oldest", "middle", "newest"],
+                "second pin joins below the first, and does not sort by recency")
 
             store.togglePinned(item(store, "newest"))
             expect(
-                texts(store) == ["newest", "middle", "oldest"],
+                texts(store) == ["oldest", "middle", "newest"],
                 "pins hold pin order, not the recency order they had in the history")
         }
     }
@@ -77,14 +77,14 @@ struct ClipboardTests {
 
             store.promote(item(store, "one"))
 
-            expect(texts(store) == ["two", "one"], "promote leaves a pinned row in place")
+            expect(texts(store) == ["one", "two"], "promote leaves a pinned row in place")
             expect(item(store, "one").createdAt == stamp, "promote does not rewrite a pinned row")
 
             store.addText("three", sourceBundleID: nil)
             store.addText("four", sourceBundleID: nil)
             store.promote(item(store, "three"))
             expect(
-                texts(store) == ["two", "one", "three", "four"],
+                texts(store) == ["one", "two", "three", "four"],
                 "an unpinned row still promotes to the head of the history")
         }
     }
@@ -157,11 +157,11 @@ struct ClipboardTests {
             let reopened = ClipboardStore(directory: dir)
             reopened.load()
             expect(
-                texts(reopened) == ["first", "third", "second"],
+                texts(reopened) == ["third", "first", "second"],
                 "pin order is restored from disk, not recomputed from recency")
 
-            reopened.togglePinned(item(reopened, "first"))
-            expect(texts(reopened) == ["third", "first", "second"], "unpin after a reload")
+            reopened.togglePinned(item(reopened, "third"))
+            expect(texts(reopened) == ["first", "third", "second"], "unpin after a reload")
 
             reopened.clearAll()
             expect(reopened.items.isEmpty, "Clear History takes pins too")

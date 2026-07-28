@@ -28,9 +28,10 @@ recency.
 Pins change four things:
 
 - **Order.** `search` returns pinned rows first — for the empty query and for FTS hits alike — under
-  one "Pinned" section above the date buckets, newest pin at the top, so pinning a row never
-  reshuffles the pins already there. `items` itself stays in pure recency order; the display split is
-  memoized next to the search memo and invalidated with it. Pinned rows are matched **in memory**
+  one "Pinned" section above the date buckets, in pin order with the oldest pin at the top, so a new
+  pin joins the end of the section instead of displacing the ones already there. `items` itself stays
+  in pure recency order; the display split is memoized next to the search memo and invalidated with
+  it. Pinned rows are matched **in memory**
   rather than taken from the FTS result, since the statement's `LIMIT` could otherwise drop one out
   of a busy query's matches — which holds because every pinned row is resident in `items`, however
   old (`load` fetches them all, and neither the window trim nor pruning drops one).

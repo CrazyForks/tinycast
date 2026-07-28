@@ -14,7 +14,7 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
     let createdAt: Date
     /// Bundle ID of the app frontmost when the copy was captured (see `ClipboardManager.poll`).
     let sourceBundleID: String?
-    /// When the entry was pinned. Pinned entries lead the list in their own section, newest pin first, and are exempt from retention pruning.
+    /// When the entry was pinned. Pinned entries lead the list in their own section, in pin order, and are exempt from retention pruning.
     let pinnedAt: Date?
 
     var isPinned: Bool { pinnedAt != nil }
@@ -324,10 +324,10 @@ final class ClipboardStore: ObservableObject {
         return result
     }
 
-    /// The Pinned section's contents: newest pin first, so pinning a row never reshuffles the pins already there.
+    /// The Pinned section's contents in pin order, oldest pin first: a new pin joins the end of the section instead of displacing the ones already there.
     private var pinnedItems: [ClipboardItem] {
         items.filter(\.isPinned)
-            .sorted { ($0.pinnedAt ?? .distantPast) > ($1.pinnedAt ?? .distantPast) }
+            .sorted { ($0.pinnedAt ?? .distantFuture) < ($1.pinnedAt ?? .distantFuture) }
     }
 
     /// The row keeps its place in the history and gains a stamp, which puts it at the head of the Pinned section.
