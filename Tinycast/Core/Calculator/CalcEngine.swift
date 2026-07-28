@@ -188,11 +188,11 @@ enum CalcEngine {
                 quantity, with: "\(quantity.expression) \(operatorText)")
         }
 
+        // A conversion's own echo drops its target ("10 km" for `10km to mi`), so echo the typed text instead — the badges still name both units.
         if let complete = evaluate(
             tokenQuery(prefixTokens), now: now, calendar: calendar, currency: currency)
         {
-            return replacingExpression(
-                complete, with: "\(complete.expression) \(operatorText)")
+            return replacingExpression(complete, with: prettyExpression(query))
         }
 
         guard let value = CalcParser.evaluate(prefixTokens) else { return nil }
@@ -205,18 +205,12 @@ enum CalcEngine {
     }
 
     private static func partialOperatorText(_ token: CalcToken) -> String? {
-        switch token {
-        case .op("+"), .op("-"), .op("^"):
-            if case .op(let op) = token { return String(op) }
-            return nil
-        case .op("*"):
-            return "×"
-        case .op("/"):
-            return "÷"
-        case .ident("of"):
-            return "of"
-        default:
-            return nil
+        guard case .op(let op) = token else { return nil }
+        switch op {
+        case "*": return "×"
+        case "/": return "÷"
+        case "+", "-", "^": return String(op)
+        default: return nil
         }
     }
 
@@ -226,8 +220,10 @@ enum CalcEngine {
             switch token {
             case .number(let value), .compactNumber(let value):
                 return CalcFormatter.copyText(value)
-            case .intLiteral(let value, _):
-                return String(value)
+            case .intLiteral(let value, let radix):
+                // Keep the radix prefix so `0xff -` still reports a hex source, not a decimal one.
+                let prefix = [16: "0x", 2: "0b", 8: "0o"][radix] ?? ""
+                return prefix + String(value, radix: radix)
             case .ident(let name):
                 return name
             case .op(let op):

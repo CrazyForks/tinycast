@@ -151,6 +151,11 @@ struct CalcTests {
         expectDisplay("10kg + 5kg", "15 kg")
         expectCopy("10kg + 5kg", "15 kg")
         expectExpression("10kg + 5kg", "10 kg + 5 kg")
+        // Signs, parens and postfix % hug their operand instead of floating as separate words
+        expectExpression("10kg * 3%", "10 kg × 3%")
+        expectExpression("(10kg + 5kg) * 3%", "(10 kg + 5 kg) × 3%")
+        expectExpression("-5kg + 2kg", "-5 kg + 2 kg")
+        expectExpression("5 feet 3 inches", "5 ft 3 in")
         expectBadges("10kg + 5kg", source: "Expression", target: "Kilograms")
         expectDisplay("10kg + 10g", "10.01 kg")  // exact request from issue #64
         expectDisplay("10kg + 500g", "10.5 kg")
@@ -228,6 +233,14 @@ struct CalcTests {
         expectNil("+")
         expectNil("10 + nonsense")
         expectNil("10 + (")
+        expectNil("10 of")  // a stray English word is a search, not a partial expression
+
+        // A partial after a conversion echoes the typed text, and keeps the source radix / units
+        expectExpression("10km to mi *", "10km to mi ×")
+        expectDisplay("10km to mi *", "6.213711922 mi")
+        expectExpression("255 to hex +", "255 to hex +")
+        expectBadges("0xff -", source: "Hexadecimal", target: "Decimal")
+        expectDisplay("0xff -", "255")
 
         // A conversion suffix applies to the complete unit expression
         expectDisplay("(1kg + 500g) to lb", "3.306933933 lb")
@@ -251,7 +264,13 @@ struct CalcTests {
         // Clear dimensional mistakes are errors; incomplete or non-finite input stays silent
         expectError("1kg + 1m", "Cannot add Weight and Length.")
         expectError("1kg + 1hr", "Cannot add Weight and Time.")
-        expectError("1kg + 1", "Cannot add Weight and a unitless value.")
+        // A unit against a bare number is a half-typed unit, not a mistake worth an error card
+        expectNil("1kg + 1")
+        expectNil("10kg + 5")  // mid-way through "10kg + 5kg"
+        expectNil("1hr 30")  // mid-way through "1hr 30min"
+        expectNil("5 feet 3")  // mid-way through "5 feet 3 inches"
+        expectNil("$10 + 5")
+        expectNil("10kg + -20%")
         expectError(
             "1kg * 1m",
             "Multiplication of two unit values is not supported.")
@@ -433,6 +452,9 @@ struct CalcTests {
         expectDisplay("10$ + 5$", "15.00 USD")
         expectDisplay("$10 + €5", "15.43 USD")
         expectDisplay("€5 + $10", "14.20 EUR")
+        // Sign-first money echoes amount-first, like every other quantity
+        expectExpression("$10 + €5", "10 USD + 5 EUR")
+        expectExpression("10$ + 5€", "10 USD + 5 EUR")
         expectDisplay("$10 * 2", "20.00 USD")
         expectDisplay("$10 / 4", "2.50 USD")
         expectDisplay("$10 / $2", "5")

@@ -28,7 +28,7 @@ enum CalcQuantity {
                     payload: .error(
                         message: "Exchange rates unavailable — check your connection."))
             case .on(let rates?):
-                for code in parser.currencyCodes where rates.rate(for: code) == nil {
+                if let code = parser.currencyCodes.first(where: { rates.rate(for: $0) == nil }) {
                     return CalcResult(
                         expression: query,
                         payload: .error(message: "No exchange rate for \(code)."))
@@ -192,36 +192,81 @@ enum CalcQuantity {
         return false
     }
 
+    /// Normalized echo for the card's left column: unit symbols, pretty operator glyphs, money in `amount code` order, and signs / parentheses / postfix `%` `!` hugging their operand instead of standing alone as words.
     private static func expressionText(_ tokens: [CalcToken]) -> String {
         var parts: [String] = []
         parts.reserveCapacity(tokens.count)
-        for token in tokens {
-            switch token {
-            case .number(let value), .compactNumber(let value):
-                parts.append(CalcFormatter.copyText(value))
-            case .intLiteral(let value, _):
-                parts.append(String(value))
-            case .ident(let name):
-                if let unit = CalcUnits.byName[name] {
-                    parts.append(unit.symbol)
-                } else if let definition = CalcCurrency.byName[name] {
-                    parts.append(definition.code)
-                } else {
-                    parts.append(name)
-                }
-            case .op("*"):
-                parts.append("×")
-            case .op("/"):
-                parts.append("÷")
-            case .op(let op):
-                parts.append(String(op))
-            case .arrow:
-                parts.append("→")
+        var attachNext = true
+
+        func add(_ piece: String, attached: Bool = false) {
+            if attachNext || attached, !parts.isEmpty {
+                parts[parts.count - 1] += piece
+            } else {
+                parts.append(piece)
             }
+            attachNext = false
+        }
+
+        var index = 0
+        while index < tokens.count {
+            // Money is written sign-first (`$10`), so echo the amount ahead of its code like every other quantity.
+            if case .ident(let name) = tokens[index], CalcUnits.byName[name] == nil,
+                let definition = CalcCurrency.byName[name], index + 1 < tokens.count,
+                let amount = numberValue(tokens[index + 1])
+            {
+                add(CalcFormatter.copyText(amount))
+                add(definition.code)
+                index += 2
+                continue
+            }
+
+            switch tokens[index] {
+            case .number(let value), .compactNumber(let value):
+                add(CalcFormatter.copyText(value))
+            case .intLiteral(let value, _):
+                add(String(value))
+            case .ident(let name):
+                add(CalcUnits.byName[name]?.symbol ?? CalcCurrency.byName[name]?.code ?? name)
+            case .op("("):
+                add("(")
+                attachNext = true
+            case .op(")"):
+                add(")", attached: true)
+            case .op("%"):
+                add("%", attached: true)
+            case .op("!"):
+                add("!", attached: true)
+            case .op("*"):
+                add("×")
+            case .op("/"):
+                add("÷")
+            case .op(let op):
+                add(String(op))
+                if op == "-" || op == "+" { attachNext = isSign(at: index, tokens) }
+            case .arrow:
+                add("→")
+            }
+            index += 1
         }
         return parts.joined(separator: " ")
-            .replacingOccurrences(of: "( ", with: "(")
-            .replacingOccurrences(of: " )", with: ")")
+    }
+
+    /// True when `+`/`-` negates the operand that follows rather than joining two of them.
+    private static func isSign(at index: Int, _ tokens: [CalcToken]) -> Bool {
+        guard index > 0 else { return true }
+        if case .op(let previous) = tokens[index - 1] {
+            return previous != ")" && previous != "%" && previous != "!"
+        }
+        return false
+    }
+
+    fileprivate static func numberValue(_ token: CalcToken) -> Double? {
+        switch token {
+        case .number(let value), .compactNumber(let value):
+            return value
+        default:
+            return nil
+        }
     }
 }
 
@@ -360,20 +405,9 @@ private struct QuantityParser {
             return fail(
                 "Cannot \(op == "+" ? "add" : "subtract") Currency and \(rhs.category.displayName)."
             )
-        case (.unit(let lhs), .scalar):
-            return fail(
-                "Cannot \(op == "+" ? "add" : "subtract") \(lhs.category.displayName) and a unitless value."
-            )
-        case (.scalar, .unit(let rhs)):
-            return fail(
-                "Cannot \(op == "+" ? "add" : "subtract") a unitless value and \(rhs.category.displayName)."
-            )
-        case (.currency, .scalar):
-            return fail(
-                "Cannot \(op == "+" ? "add" : "subtract") Currency and a unitless value.")
-        case (.scalar, .currency):
-            return fail(
-                "Cannot \(op == "+" ? "add" : "subtract") a unitless value and Currency.")
+        // Silent, not an error: a dimensioned side against a bare number is what a half-typed unit looks like ("10kg + 5" on the way to "10kg + 5kg").
+        case (.unit, .scalar), (.scalar, .unit), (.currency, .scalar), (.scalar, .currency):
+            return nil
         }
     }
 
@@ -450,7 +484,7 @@ private struct QuantityParser {
                 position += 1
             case .op("!"):
                 guard isScalar(value.kind), !value.isPercent,
-                    let factorial = factorial(value.amount)
+                    let factorial = CalcParser.factorial(value.amount)
                 else { return nil }
                 value.amount = factorial
                 position += 1
@@ -534,12 +568,7 @@ private struct QuantityParser {
 
     private func number(at index: Int) -> Double? {
         guard index < tokens.count else { return nil }
-        switch tokens[index] {
-        case .number(let value), .compactNumber(let value):
-            return value
-        default:
-            return nil
-        }
+        return CalcQuantity.numberValue(tokens[index])
     }
 
     private func startsQuantity(_ token: CalcToken?) -> Bool {
@@ -563,16 +592,5 @@ private struct QuantityParser {
     private mutating func fail(_ message: String) -> QuantityValue? {
         issue = message
         return nil
-    }
-
-    private func factorial(_ value: Double) -> Double? {
-        guard value >= 0, value.rounded() == value, value <= 170 else { return nil }
-        var result = 1.0
-        var next = 2.0
-        while next <= value {
-            result *= next
-            next += 1
-        }
-        return result
     }
 }
