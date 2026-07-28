@@ -49,6 +49,11 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
             createdAt: createdAt ?? self.createdAt, sourceBundleID: sourceBundleID,
             isPinned: isPinned ?? self.isPinned)
     }
+
+    /// Case-insensitive substring match — how the store filters without FTS: short queries, the no-database path, and the pinned block.
+    func matches(_ query: String) -> Bool {
+        text?.localizedCaseInsensitiveContains(query) ?? false
+    }
 }
 
 /// How long clipboard history is kept before pruning; raw value is the age in days persisted to UserDefaults, and `forever` is -1 so an unset key (0) falls through to the default.
@@ -84,6 +89,7 @@ enum ClipboardRetention: Int, CaseIterable, Identifiable, Sendable {
 @MainActor
 final class ClipboardStore: ObservableObject {
     /// Newest-first, pins included in place — `search` is the one place that lifts pinned rows to the head for display.
+    /// Every pinned row is resident here however old it is (`load` fetches them all, neither `trimWindow` nor `prune` drops one), which is what lets `search` match the pinned block in memory.
     @Published private(set) var items: [ClipboardItem] = [] {
         didSet {
             searchCache = nil
@@ -126,6 +132,7 @@ final class ClipboardStore: ObservableObject {
     private var db: OpaquePointer?
     private var insertStmt: OpaquePointer?
     private var loadStmt: OpaquePointer?
+    private var windowFloorStmt: OpaquePointer?
     private var searchStmt: OpaquePointer?
     private var deleteByIDStmt: OpaquePointer?
     private var setPinnedStmt: OpaquePointer?
@@ -158,8 +165,7 @@ final class ClipboardStore: ObservableObject {
 
     func load() {
         guard let stmt = loadStmt else { return }
-        // The window counts unpinned rows only; `loadStmt` adds every pinned row on top, however old.
-        sqlite3_bind_int(stmt, 1, Int32(Self.memoryWindow - 1))
+        sqlite3_bind_int64(stmt, 1, windowFloor())
         var loaded: [ClipboardItem] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             if let item = Self.row(stmt) { loaded.append(item) }
@@ -174,6 +180,17 @@ final class ClipboardStore: ObservableObject {
     /// Called on load and when the retention setting changes.
     func enforceLimits() {
         prune()
+    }
+
+    /// Rowid of the oldest unpinned row the in-memory window keeps — the floor `loadStmt` reads from. 0 (no floor, load everything) when the history is shorter than the window.
+    private func windowFloor() -> sqlite3_int64 {
+        guard let stmt = windowFloorStmt else { return 0 }
+        defer {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+        }
+        sqlite3_bind_int(stmt, 1, Int32(Self.memoryWindow - 1))
+        return sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 0
     }
 
     func addText(_ text: String, sourceBundleID: String?) {
@@ -286,7 +303,8 @@ final class ClipboardStore: ObservableObject {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return orderedItems }
         if let searchCache, searchCache.query == q { return searchCache.result }
-        let result = Self.pinnedFirst(runSearch(q))
+        // Pins are matched in memory rather than taken from the FTS result: they are all resident (see `items`), and the statement's LIMIT would otherwise drop one out of a busy query's matches.
+        let result = pinnedItems.filter { $0.matches(q) } + runSearch(q).filter { !$0.isPinned }
         searchCache = (q, result)
         return result
     }
@@ -315,22 +333,20 @@ final class ClipboardStore: ObservableObject {
     // MARK: - Private
 
     private func fallbackSearch(_ q: String) -> [ClipboardItem] {
-        items.filter { ($0.text?.localizedCaseInsensitiveContains(q)) ?? false }
+        items.filter { $0.matches(q) }
     }
 
     private var orderedItems: [ClipboardItem] {
         if let orderedCache { return orderedCache }
-        let result = Self.pinnedFirst(items)
+        let pinned = pinnedItems
+        // An unpinned history renders `items` as-is, so it never pays for the split.
+        let result = pinned.isEmpty ? items : pinned + items.filter { !$0.isPinned }
         orderedCache = result
         return result
     }
 
-    /// Lift pinned rows to the head, preserving the newest-first order within each block.
-    private static func pinnedFirst(_ list: [ClipboardItem]) -> [ClipboardItem] {
-        let pinned = list.filter(\.isPinned)
-        guard !pinned.isEmpty else { return list }
-        return pinned + list.filter { !$0.isPinned }
-    }
+    /// The Pinned section's contents, in display order.
+    private var pinnedItems: [ClipboardItem] { items.filter(\.isPinned) }
 
     /// Cap the in-memory window, but never drop a pinned row: those render however old they are.
     private func trimWindow() {
@@ -416,7 +432,8 @@ final class ClipboardStore: ObservableObject {
                 }
             }
         }
-        if items.last.map({ $0.createdAt < cutoff }) == true {
+        // Checked against the oldest *unpinned* row: an exempt pin sitting at the tail would otherwise make this guard permanently true and re-scan the window on every capture.
+        if items.last(where: { !$0.isPinned }).map({ $0.createdAt < cutoff }) == true {
             items.removeAll { $0.createdAt < cutoff && !$0.isPinned }
         }
     }
@@ -442,20 +459,27 @@ final class ClipboardStore: ObservableObject {
             sqlite3_exec(
                 db, "ALTER TABLE items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", nil, nil, nil)
         }
+        // Partial index so `load`'s pinned branch is a lookup instead of a table scan. Created after the migration rather than in `schema`, since the column may not exist yet on an older database.
+        sqlite3_exec(
+            db, "CREATE INDEX IF NOT EXISTS items_pinned ON items(pinned) WHERE pinned = 1", nil,
+            nil, nil)
         insertStmt = prepare(
             """
             INSERT INTO items(id, kind, text, image_path, created_at, source_app, pinned)
             VALUES(?,?,?,?,?,?,?)
             """
         )
-        // Every pinned row plus the newest `memoryWindow` unpinned ones (rowid of the oldest kept unpinned row is the floor; NULL when there are fewer than that, so everything loads).
+        // Every pinned row plus the newest `memoryWindow` unpinned ones, keyed off the floor rowid `windowFloor` looks up. Two indexed branches rather than one `pinned = 1 OR rowid >= ?` scan: the planner can't drive an OR from an index while holding the row order, so that form reads the whole table (~12ms at 200k rows against ~1ms here).
         loadStmt = prepare(
             """
-            SELECT id, kind, text, image_path, created_at, source_app, pinned FROM items
-            WHERE pinned = 1 OR rowid >= COALESCE(
-              (SELECT rowid FROM items WHERE pinned = 0 ORDER BY rowid DESC LIMIT 1 OFFSET ?), 0)
-            ORDER BY rowid DESC
+            SELECT id, kind, text, image_path, created_at, source_app, pinned FROM (
+              SELECT rowid AS rid, * FROM items WHERE rowid >= ?1
+              UNION ALL
+              SELECT rowid AS rid, * FROM items WHERE pinned = 1 AND rowid < ?1
+            ) ORDER BY rid DESC
             """)
+        windowFloorStmt = prepare(
+            "SELECT rowid FROM items WHERE pinned = 0 ORDER BY rowid DESC LIMIT 1 OFFSET ?")
         searchStmt = prepare(
             """
             SELECT i.id, i.kind, i.text, i.image_path, i.created_at, i.source_app, i.pinned
@@ -470,7 +494,7 @@ final class ClipboardStore: ObservableObject {
             WHERE created_at < ? AND pinned = 0 AND image_path IS NOT NULL
             """)
         deleteStaleStmt = prepare("DELETE FROM items WHERE created_at < ? AND pinned = 0")
-        return insertStmt != nil && loadStmt != nil && searchStmt != nil
+        return insertStmt != nil && loadStmt != nil && windowFloorStmt != nil && searchStmt != nil
             && deleteByIDStmt != nil && setPinnedStmt != nil && staleImagesStmt != nil
             && deleteStaleStmt != nil
     }
@@ -492,11 +516,12 @@ final class ClipboardStore: ObservableObject {
 
     private func closeDatabase() {
         [
-            insertStmt, loadStmt, searchStmt, deleteByIDStmt, setPinnedStmt, staleImagesStmt,
-            deleteStaleStmt,
+            insertStmt, loadStmt, windowFloorStmt, searchStmt, deleteByIDStmt, setPinnedStmt,
+            staleImagesStmt, deleteStaleStmt,
         ].forEach { sqlite3_finalize($0) }
         insertStmt = nil
         loadStmt = nil
+        windowFloorStmt = nil
         searchStmt = nil
         deleteByIDStmt = nil
         setPinnedStmt = nil
