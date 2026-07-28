@@ -108,6 +108,30 @@ enum CalcUnits {
         return BareConversion(input: input, from: from, to: to, output: output, compound: mapping.compound)
     }
 
+    /// `145 mins to timespan` → the same duration spelled out in descending units. A pseudo-target rather
+    /// than a `UnitDef`, since it names a rendering rather than a scale, and only time sources can use it.
+    static func parseTimespan(_ tokens: [CalcToken]) -> (from: UnitDef, seconds: Double)? {
+        guard tokens.count >= 3, isConnector(tokens[tokens.count - 2]),
+            case .ident(let target) = tokens[tokens.count - 1],
+            target == "timespan" || target == "duration",
+            case .ident(let fromName) = tokens[tokens.count - 3],
+            let from = byName[fromName], from.category == .time
+        else { return nil }
+
+        let valueTokens = Array(tokens[0..<(tokens.count - 3)])
+        let input: Double
+        if valueTokens.isEmpty {
+            input = 1
+        } else if let value = CalcParser.evaluate(valueTokens) {
+            input = value
+        } else {
+            return nil
+        }
+        let seconds = input * from.factor
+        guard seconds.isFinite else { return nil }
+        return (from, seconds)
+    }
+
     static func isConnector(_ token: CalcToken) -> Bool {
         switch token {
         case .arrow, .ident("to"), .ident("in"): return true
@@ -202,14 +226,14 @@ enum CalcUnits {
         add(UnitDef("week", "Weeks", .time, 604800), ["wk", "week", "weeks"])
 
         // Area (base: square meter). The tokenizer folds "²" to "2", so mm²/mm2 are one name.
-        add(UnitDef("mm²", "Square Millimeters", .area, 1e-6), ["mm2", "sqmm"])
-        add(UnitDef("cm²", "Square Centimeters", .area, 1e-4), ["cm2", "sqcm"])
-        add(UnitDef("m²", "Square Meters", .area, 1), ["m2", "sqm"])
-        add(UnitDef("km²", "Square Kilometers", .area, 1e6), ["km2", "sqkm"])
-        add(UnitDef("in²", "Square Inches", .area, 0.00064516), ["in2", "sqin"])
-        add(UnitDef("ft²", "Square Feet", .area, 0.09290304), ["ft2", "sqft"])
-        add(UnitDef("yd²", "Square Yards", .area, 0.83612736), ["yd2", "sqyd"])
-        add(UnitDef("mi²", "Square Miles", .area, 2_589_988.110336), ["mi2", "sqmi"])
+        add(UnitDef("mm²", "Square Millimeters", .area, 1e-6), ["mm2", "sqmm", "sq mm", "square millimeter", "square millimeters"])
+        add(UnitDef("cm²", "Square Centimeters", .area, 1e-4), ["cm2", "sqcm", "sq cm", "square centimeter", "square centimeters"])
+        add(UnitDef("m²", "Square Meters", .area, 1), ["m2", "sqm", "sq m", "square meter", "square meters"])
+        add(UnitDef("km²", "Square Kilometers", .area, 1e6), ["km2", "sqkm", "sq km", "square kilometer", "square kilometers"])
+        add(UnitDef("in²", "Square Inches", .area, 0.00064516), ["in2", "sqin", "sq in", "square inch", "square inches"])
+        add(UnitDef("ft²", "Square Feet", .area, 0.09290304), ["ft2", "sqft", "sq ft", "square foot", "square feet"])
+        add(UnitDef("yd²", "Square Yards", .area, 0.83612736), ["yd2", "sqyd", "sq yd", "square yard", "square yards"])
+        add(UnitDef("mi²", "Square Miles", .area, 2_589_988.110336), ["mi2", "sqmi", "sq mi", "square mile", "square miles"])
         add(UnitDef("acre", "Acres", .area, 4046.8564224), ["acre", "acres"])
         add(UnitDef("ha", "Hectares", .area, 10000), ["ha", "hectare", "hectares"])
 
@@ -228,7 +252,9 @@ enum CalcUnits {
         add(UnitDef("gal", "Gallons", .volume, 3.785411784), ["gal", "gallon", "gallons"])
         add(UnitDef("qt", "Quarts", .volume, 0.946352946), ["qt", "quart", "quarts"])
         add(UnitDef("pt", "Pints", .volume, 0.473176473), ["pt", "pint", "pints"])
-        add(UnitDef("fl oz", "Fluid Ounces", .volume, 0.0295735295625), ["floz"])
+        add(
+            UnitDef("fl oz", "Fluid Ounces", .volume, 0.0295735295625),
+            ["floz", "fl oz", "fluid ounce", "fluid ounces"])
 
         // Digital storage (base: byte) — kB/MB/… are SI (1000ⁿ), KiB/MiB/… are IEC (1024ⁿ).
         add(UnitDef("bit", "Bits", .digitalStorage, 0.125), ["bit", "bits"])
@@ -257,11 +283,14 @@ enum CalcUnits {
         add(UnitDef("arcsec", "Arcseconds", .angle, .pi / 648000), ["arcsec", "arcsecond", "arcseconds"])
         add(UnitDef("turn", "Turns", .angle, 2 * .pi), ["turn", "turns", "rev", "revolution", "revolutions"])
 
-        // Speed (base: meter/second) — slash-free aliases; symbols keep the pretty "/".
-        add(UnitDef("m/s", "Meters per Second", .speed, 1), ["mps"])
-        add(UnitDef("km/h", "Kilometers per Hour", .speed, 1000.0 / 3600), ["kmh", "kph"])
-        add(UnitDef("mph", "Miles per Hour", .speed, 1609.344 / 3600), ["mph"])
-        add(UnitDef("ft/s", "Feet per Second", .speed, 0.3048), ["fps"])
+        // Speed (base: meter/second). The slash spellings are aliases too — the tokenizer rejoins
+        // `m / s` and looks the result up here, so `100 km/h to mph` works without typing "kmh".
+        add(UnitDef("m/s", "Meters per Second", .speed, 1), ["mps", "m/s", "m/sec", "meter/second"])
+        add(
+            UnitDef("km/h", "Kilometers per Hour", .speed, 1000.0 / 3600),
+            ["kmh", "kph", "km/h", "km/hr", "km/hour"])
+        add(UnitDef("mph", "Miles per Hour", .speed, 1609.344 / 3600), ["mph", "mi/h", "mi/hr"])
+        add(UnitDef("ft/s", "Feet per Second", .speed, 0.3048), ["fps", "ft/s", "ft/sec"])
         add(UnitDef("kn", "Knots", .speed, 1852.0 / 3600), ["kn", "knot", "knots"])
 
         // Pressure (base: pascal)
@@ -276,11 +305,11 @@ enum CalcUnits {
         add(UnitDef("Torr", "Torr", .pressure, 101325.0 / 760), ["torr"])
 
         // Data transfer rate (base: bit/second) — SI (1000ⁿ) bit rates.
-        add(UnitDef("bps", "Bits per Second", .dataRate, 1), ["bps"])
-        add(UnitDef("Kbps", "Kilobits per Second", .dataRate, 1e3), ["kbps"])
-        add(UnitDef("Mbps", "Megabits per Second", .dataRate, 1e6), ["mbps"])
-        add(UnitDef("Gbps", "Gigabits per Second", .dataRate, 1e9), ["gbps"])
-        add(UnitDef("Tbps", "Terabits per Second", .dataRate, 1e12), ["tbps"])
+        add(UnitDef("bps", "Bits per Second", .dataRate, 1), ["bps", "b/s", "bit/s"])
+        add(UnitDef("Kbps", "Kilobits per Second", .dataRate, 1e3), ["kbps", "kb/s", "kbit/s"])
+        add(UnitDef("Mbps", "Megabits per Second", .dataRate, 1e6), ["mbps", "mb/s", "mbit/s"])
+        add(UnitDef("Gbps", "Gigabits per Second", .dataRate, 1e9), ["gbps", "gb/s", "gbit/s"])
+        add(UnitDef("Tbps", "Terabits per Second", .dataRate, 1e12), ["tbps", "tb/s", "tbit/s"])
 
         return table
     }()

@@ -29,6 +29,39 @@ enum CalcFormatter {
         return text
     }
 
+    /// Descending units of a duration in seconds ("2 hours 25 minutes"). Hand-rolled for the same reason
+    /// as the rest of this type — `DateComponentsFormatter` is locale-dependent and its styles shift with ICU.
+    /// The ladder stops at weeks: months and years are not a fixed number of seconds.
+    static func compoundDuration(_ seconds: Double, maxParts: Int = 4) -> String {
+        guard seconds.isFinite else { return display(seconds) }
+        let sign = seconds < 0 ? "-" : ""
+        var remaining = abs(seconds)
+        if remaining < 1 {
+            let value = remaining * 1000
+            return "\(sign)\(display(value)) \(value == 1 ? "millisecond" : "milliseconds")"
+        }
+
+        var parts: [String] = []
+        for (offset, unit) in durationLadder.enumerated() {
+            let last = parts.count == maxParts - 1 || offset == durationLadder.count - 1
+            let exact = remaining / unit.length
+            // Whole units read better once there are several parts; a fraction only survives when it's the only part ("1.5 seconds").
+            let count = (last && parts.isEmpty) ? exact : exact.rounded(.down)
+            if count < 1 {
+                if last && !parts.isEmpty { break }
+                continue
+            }
+            parts.append("\(display(count)) \(count == 1 ? unit.name : unit.name + "s")")
+            remaining -= count * unit.length
+            if parts.count == maxParts || remaining <= 0 { break }
+        }
+        return sign + parts.joined(separator: " ")
+    }
+
+    private static let durationLadder: [(name: String, length: Double)] = [
+        ("week", 604_800), ("day", 86_400), ("hour", 3_600), ("minute", 60), ("second", 1),
+    ]
+
     /// A length in feet rendered as whole feet + remaining inches ("3 feet 3.370078740 inches"); used only for the bare metric-length auto-conversion. Sub-foot values drop the feet part.
     static func compoundFeetInches(_ feet: Double) -> String {
         let sign = feet < 0 ? "-" : ""

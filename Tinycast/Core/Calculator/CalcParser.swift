@@ -183,6 +183,14 @@ enum CalcTokenizer {
         output.reserveCapacity(tokens.count)
         var index = 0
         while index < tokens.count {
+            // Rejoin unit spellings the scanner split: `km / h` and `fl oz` are one unit, not a
+            // division or two words. Only when the joined form is a real unit, so `10 kg / 2 kg`
+            // (`kg/2`) and `10 km / mi` (`km/mi`) stay arithmetic.
+            if let joined = joinedUnit(tokens, at: index) {
+                output.append(.ident(joined.name))
+                index += joined.length
+                continue
+            }
             if case .ident(let name) = tokens[index], let factor = multiplierWords[name],
                 let previous = output.last, let amount = numberValue(previous)
             {
@@ -199,6 +207,26 @@ enum CalcTokenizer {
             index += 1
         }
         return output
+    }
+
+    /// A unit written across several tokens: `km / h` (slash) or `fl oz` (space). Returns the joined
+    /// lookup name and how many tokens it consumed, only when that name is a unit the table knows.
+    private static func joinedUnit(
+        _ tokens: [CalcToken], at index: Int
+    ) -> (name: String, length: Int)? {
+        guard case .ident(let first) = tokens[index] else { return nil }
+        if index + 2 < tokens.count, tokens[index + 1] == .op("/"),
+            case .ident(let second) = tokens[index + 2],
+            CalcUnits.byName["\(first)/\(second)"] != nil
+        {
+            return ("\(first)/\(second)", 3)
+        }
+        if index + 1 < tokens.count, case .ident(let second) = tokens[index + 1],
+            CalcUnits.byName["\(first) \(second)"] != nil
+        {
+            return ("\(first) \(second)", 2)
+        }
+        return nil
     }
 
     private static func matchPhrase(

@@ -15,12 +15,14 @@ also **pure**: the one input it can't compute, the FX rate table, is passed in (
 3. Tokenize
 4. Complete-prefix evaluation for a trailing binary operator (`10kg +` → `10 kg`)
 5. Base conversion
-6. Explicit unit conversion (`10km to mi`)
-7. **Typed quantity arithmetic** (`10kg + 500g`, `$10 + €5`, `(1hr + 30min) to s`)
-8. **Currency conversion** (`1 euro to dollars`, `€20 to GBP`)
-9. **Bare-unit auto-conversion** (`1m` → feet + inches, `1hr` → 60 min, via
-   `CalcUnits.parseBareConversion` + the `autoTargets` map)
-10. Plain arithmetic
+6. Pixel density (`2 inches in px at 72 ppi`) and spelled-out durations (`145 mins to timespan`) —
+   both name a target the unit table doesn't hold
+7. Explicit unit conversion (`10km to mi`)
+8. **Typed quantity arithmetic** (`10kg + 500g`, `$10 + €5`, `(1hr + 30min) to s`)
+9. **Currency conversion** (`1 euro to dollars`, `€20 to GBP`)
+10. **Bare-unit auto-conversion** (`1m` → feet + inches, `1hr` → 60 min, via
+    `CalcUnits.parseBareConversion` + the `autoTargets` map)
+11. Plain arithmetic
 
 Date/time depends on the clock, so it takes an injected `now` / `calendar` — the public `evaluate(_:)`
 uses the live clock, and `evaluate(_:now:calendar:)` lets `calc-test.swift` assert exact strings
@@ -102,6 +104,29 @@ earns them a card on their own (`1e6` → `1,000,000`) where a plain lone litera
 
 `min` and `sec` are both function names and time-unit aliases. The unit path runs before plain
 arithmetic, so `90 min to hr` is time and `min(3, 9)` is the function; neither shadows the other.
+
+## Units written across tokens
+
+The scanner splits on `/` and whitespace, which used to make `100 km/h to mph` unparseable — `/` became
+an operator, and `parseConversion` needs an ident. The normalization pass rejoins them: an
+`ident / ident` or `ident ident` pair collapses to one ident **only when the joined name is a unit the
+table knows**. The slash and multiword spellings are therefore registered as ordinary aliases in
+`CalcUnits`, which is what keeps the rule honest — `m/s` resolves to Meters per Second rather than
+colliding with `ms` (milliseconds), because the lookup key keeps the slash.
+
+Ordinary arithmetic is untouched, since those joins don't resolve: `10 kg / 2 kg` (`kg/2`),
+`10 km / mi` (`km/mi`), `$10 / 4` and `1/2` all stay division. Same mechanism gives `fl oz`,
+`fluid ounces`, `sq ft` and `square meters`.
+
+Two targets aren't units at all and so run ahead of the unit paths:
+
+- **`145 mins to timespan`** (or `duration`) spells a duration out via `CalcFormatter.compoundDuration`
+  — up to four descending parts, whole units except when a fraction is the only part (`1.5 seconds`).
+  The ladder stops at weeks, because months and years are not a fixed number of seconds. Time sources
+  only, so `2 kg to timespan` is silent.
+- **`2 inches in px at 72 ppi`** (`CalcPixels`) converts length ↔ pixels. Pixels only mean a length once
+  a density is named, which is why they're not an eleventh `UnitCategory`. A trailing `at <n> ppi`/`dpi`
+  clause is stripped before the conversion is read and defaults to 72, the typographic point.
 
 ## Percentages
 

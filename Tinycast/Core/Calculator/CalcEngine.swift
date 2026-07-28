@@ -78,6 +78,17 @@ enum CalcEngine {
 
         if let base = baseConversion(tokens, query: query) { return base }
 
+        // Both name a target the unit table doesn't hold, so they run ahead of the unit paths.
+        if let pixels = CalcPixels.evaluate(tokens, query: query) { return pixels }
+
+        if let timespan = CalcUnits.parseTimespan(tokens) {
+            let text = CalcFormatter.compoundDuration(timespan.seconds)
+            return CalcResult(
+                expression: query.split(whereSeparator: \.isWhitespace).joined(separator: " "),
+                sourceBadge: timespan.from.name, targetBadge: "Duration",
+                payload: .value(display: text, copyText: text))
+        }
+
         // Conversions run before the numeric reject below: `m to ft`, `day s` carry no digit.
         if let conversion = CalcUnits.parseConversion(tokens) ?? CalcUnits.parseUnitPairConversion(tokens) {
             switch conversion {

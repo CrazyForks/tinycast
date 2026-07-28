@@ -207,6 +207,55 @@ struct CalcTests {
         expectDisplay("1 m² to ft²", "10.76391042 ft²")
         expectDisplay("2L -> mL", "2,000 mL")
         expectDisplay("1 cup to tbsp", "16 tbsp")
+
+        // Rate units written with a slash — the tokenizer rejoins them and looks the whole thing up
+        expectDisplay("100 km/h to mph", "62.13711922 mph")
+        expectDisplay("60 mph to km/h", "96.56064 km/h")
+        expectDisplay("10 m/s to km/h", "36 km/h")  // and `m/s` is speed, never milliseconds
+        expectDisplay("100 km / h to mph", "62.13711922 mph")  // spaced too
+        expectDisplay("5 ft/s to m/s", "1.524 m/s")
+        expectDisplay("100 Mb/s to Gbps", "0.1 Gbps")
+        expectDisplay("1 gb/s to mbps", "1,000 Mbps")
+        // Only when the joined name is a real unit; ordinary division must survive
+        expectDisplay("10 kg / 2 kg", "5")
+        expectDisplay("5kg / 500g", "10")
+        expectDisplay("$10 / 4", "2.50 USD")
+        expectDisplay("10 m / 2", "5 m")
+        expectDisplay("1/2", "0.5")
+
+        // Units written as several words
+        expectDisplay("10 fl oz to ml", "295.7352956 mL")
+        expectDisplay("1 fluid ounce to ml", "29.57352956 mL")
+        expectDisplay("100 square feet to m2", "9.290304 m²")
+        expectDisplay("5 sq ft to m2", "0.4645152 m²")
+        expectDisplay("2 square meters to sqft", "21.52782083 ft²")
+
+        // `timespan` spells a duration out; the ladder stops at weeks
+        expectDisplay("145 mins to timespan", "2 hours 25 minutes")
+        expectDisplay("90 s to timespan", "1 minute 30 seconds")
+        expectDisplay("3661 s to timespan", "1 hour 1 minute 1 second")
+        expectDisplay("10 days to timespan", "1 week 3 days")
+        expectDisplay("2 hr to duration", "2 hours")
+        expectDisplay("100000 s to timespan", "1 day 3 hours 46 minutes 40 seconds")
+        expectDisplay("1.5 s to timespan", "1.5 seconds")  // a fraction survives as the only part
+        expectDisplay("0.5 s to timespan", "500 milliseconds")
+        expectBadges("145 mins to timespan", source: "Minutes", target: "Duration")
+        expectNil("2 kg to timespan")  // time sources only
+        expectNil("timespan")
+
+        // Pixels need a density, so they get their own path rather than a unit category
+        expectDisplay("2 inches in px at 72 ppi", "144 px")
+        expectDisplay("2 inches in px", "144 px")  // 72 ppi by default
+        expectDisplay("96px to inches", "1.333333333 in")
+        expectDisplay("1 cm to px at 96 ppi", "37.79527559 px")
+        expectDisplay("150 px to cm at 300 dpi", "1.27 cm")
+        expectDisplay("10 mm in pixels at 300 ppi", "118.1102362 px")
+        expectExpression("2 inches in px at 72 ppi", "2 in at 72 ppi")
+        expectBadges("2 inches in px", source: "Inches", target: "Pixels")
+        expectNil("2 inches in px at 0 ppi")
+        expectNil("2 kg to px")
+        expectNil("px")
+        expectNil("pixelmator")
         expectDisplay("1 gal to L", "3.785411784 L")
         expectDisplay("1 GiB to MB", "1,073.741824 MB")
         expectDisplay("1 GB to MiB", "953.6743164 MiB")

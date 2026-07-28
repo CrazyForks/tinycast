@@ -11,6 +11,7 @@
 		0DD808F80666846F4E74BAD8 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23591B301A183579098AA019 /* OnboardingView.swift */; };
 		14712478C37E6E8760CA47EC /* HyperKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DC5A4706854493D23FD18A /* HyperKey.swift */; };
 		14A5A5ACD35A572EE906769F /* CalcEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B976C84AFE60E357A346224 /* CalcEngine.swift */; };
+		1C07481A645BBBF294782AF2 /* CalcPixels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22D5789372F0B0053F54B6C /* CalcPixels.swift */; };
 		1D0C2F452B3801503B70EA9E /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F63A3610C275E4961D60C7E /* GeneralSettingsView.swift */; };
 		1F39D145DBE2290532C93614 /* ClipboardSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849FF3D93960B75F341D867C /* ClipboardSettingsView.swift */; };
 		2085C9433B7534044E0A8A7D /* PermissionsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C36D92A5018B9A7B33775DE /* PermissionsSettingsView.swift */; };
@@ -158,6 +159,7 @@
 		C6DC5A4706854493D23FD18A /* HyperKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperKey.swift; sourceTree = "<group>"; };
 		C722D73D270A3A6CED4023F7 /* SettingsPaneScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneScanner.swift; sourceTree = "<group>"; };
 		C9D8C2C59C2B578CFE61E004 /* BackupActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupActions.swift; sourceTree = "<group>"; };
+		D22D5789372F0B0053F54B6C /* CalcPixels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalcPixels.swift; sourceTree = "<group>"; };
 		D37B6D29E8E23C6136EBFB38 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		D3FA43AD7C6FB00F555C52C2 /* Bundle+AppName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Bundle+AppName.swift"; sourceTree = "<group>"; };
 		D4777FBB3A4FBB2F95FDC250 /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
@@ -369,6 +371,7 @@
 				09093BF10EA97BDCA45A241F /* CalcFormatter.swift */,
 				423CFE8AB90484D0309F24C0 /* CalcParser.swift */,
 				88A65B4EC5AE7E22594BFC5E /* CalcPercent.swift */,
+				D22D5789372F0B0053F54B6C /* CalcPixels.swift */,
 				8D93A4CEA9FE857034D63EF7 /* CalcQuantity.swift */,
 				25B8A7D8DBB0CE2ACEDB3979 /* CalcUnits.swift */,
 				5E08668A3C8418E2F0970300 /* CurrencyData.generated.swift */,
@@ -471,6 +474,7 @@
 				649961AA51BA4D87626C27D5 /* CalcFormatter.swift in Sources */,
 				72406E09AD9A33B56EA4923D /* CalcParser.swift in Sources */,
 				D3CA50C1CFABC31E6BC7B73C /* CalcPercent.swift in Sources */,
+				1C07481A645BBBF294782AF2 /* CalcPixels.swift in Sources */,
 				FC934E5AE6A933F5BC7AC4DD /* CalcQuantity.swift in Sources */,
 				9EC89A6398BD075275FECC9E /* CalcUnits.swift in Sources */,
 				DB04CC2AFEDD69D0676CA1D1 /* CalculatorCardView.swift in Sources */,
