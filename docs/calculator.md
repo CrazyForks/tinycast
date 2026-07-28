@@ -27,29 +27,43 @@ uses the live clock, and `evaluate(_:now:calendar:)` lets `calc-test.swift` asse
 against a fixed clock.
 
 `CalcQuantity` is a separate typed precedence parser rather than a mode added to the scalar
-`CalcParser`. Compatible `+` / `-` operations convert the right side into the leftmost unit, scalar
-`*` / `/` preserve the unit, compatible quantity division returns a scalar, and a trailing
-`to` / `in` converts the complete expression. Percentages keep relative semantics for addition
+`CalcParser`. Scalar `*` / `/` preserve the unit, compatible quantity division returns a scalar, and a
+trailing `to` / `in` converts the complete expression. Percentages keep relative semantics for addition
 (`10kg + 20%` → `12 kg`) and act as fractional scalars for multiplication and division
-(`10kg * 3%` → `0.3 kg`, `10kg / 25%` → `40 kg`). Adjacent compatible quantities are additive,
-so `5 feet 3 inches to cm` works as composite notation.
+(`10kg * 3%` → `0.3 kg`, `10kg / 25%` → `40 kg`).
+
+**The last unit typed decides the answer's unit.** `+` / `-` convert the *left* side into the right
+operand's unit, so `5feet + 1m` is `2.524 m` and `10kg + 500g` is `10,500 g` — the unit you finished
+writing is the one you were thinking in. Chains are left-associative, so `1kg + 500g + 2lb` ends in
+pounds. A conversion suffix overrides it entirely (`10kg + 500g to lb`).
+
+Adjacency is the exception. `5 feet 3 inches` and `1hr 30min` are one quantity in composite notation,
+not a sum, so they answer in the *leading* unit (`5.25 ft`, `1.5 hr`). `QuantityParser.peekBinary`
+already distinguishes the two — it reports `consumesToken: false` for the invisible `+` between
+adjacent quantities — and `addOrSubtract` keys the unit choice off exactly that flag.
+
+A bare number takes the unit it is written against: `5kg+5` is `10 kg`, `$10 + 5` is `15.00 USD`. Under
+adjacency the same input stays silent, because there a bare trailing number is a unit still being
+typed — `1hr 30` is one keystroke short of `1hr 30min`, and answering `31 hr` would be worse than
+answering nothing.
+
+Once an operator is involved the answer stays in the units written, so `2 * 5kg` is `10 kg`. Only a
+bare quantity (`50cm`, `1m`) falls through to the keyword-less auto-conversion below.
 
 Derived dimensions are deliberately not guessed: multiplying two unit values returns a clear error.
 Affine temperatures may only be added or subtracted when both operands use the same scale; treating
 an absolute Celsius/Fahrenheit value as a delta would silently produce physically incorrect answers.
 
 Errors are reserved for input that can only be a mistake — two incompatible units (`1kg + 1m`), or a
-unit against a currency. A dimensioned side against a *bare number* stays silent instead, because
-that is what a half-typed unit looks like: `10kg + 5` is one keystroke short of `10kg + 5kg`, and
-`1hr 30` of `1hr 30min`. Flashing a card that says "Cannot add Weight and a unitless value" while
-someone is still typing the unit would be noise, so the card only appears once the expression means
-something.
+unit against a currency. Everything else that cannot be evaluated stays silent rather than flashing a
+card mid-keystroke.
+
 An attached `k` is a thousands suffix (`10k` → `10,000`), while whitespace keeps Kelvin explicit
 (`10 k to c`); the established attached Kelvin conversion form remains valid when the temperature
 target makes the intent unambiguous (`273.15K to C`).
 
 A query ending in a binary operator keeps the last complete prefix visible while the next operand is
-being typed: `10 +` shows `10`, `10kg + 500g +` shows `10.5 kg`, and `$10 +` shows `10.00 USD`
+being typed: `10 +` shows `10`, `10kg + 500g +` shows `10,500 g`, and `$10 +` shows `10.00 USD`
 when currency is enabled. The prefix must itself be valid, so malformed input and incomplete
 parentheses remain silent. The partial result preserves the complete prefix's target badge, making
 the result's unit or currency explicit beneath the value. Only operators qualify — a trailing English
@@ -95,9 +109,10 @@ and a unit on the other produces the same friendly category error as any other m
 (`Cannot convert Currency to Weight.`).
 
 The typed quantity path uses the same ordering and injected rate snapshot. Currency arithmetic is
-therefore deterministic and consent-gated: `$10 + €5` can convert the right operand into USD when
-rates are available, while the entire path is absent when consent is off. Bare prefix and suffix
-signs (`$10`, `10$`) are accepted, and a conversion suffix applies to the whole expression.
+therefore deterministic and consent-gated: `$10 + €5` converts the left operand into euros when rates
+are available — the same last-unit-typed rule the measurements follow — while the entire path is
+absent when consent is off. Bare prefix and suffix signs (`$10`, `10$`) are accepted, and a conversion
+suffix applies to the whole expression.
 
 ### Consent
 

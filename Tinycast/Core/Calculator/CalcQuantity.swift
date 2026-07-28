@@ -52,8 +52,9 @@ enum CalcQuantity {
                     display: CalcFormatter.display(value.effective),
                     copyText: CalcFormatter.copyText(value.effective)))
         case .unit(let unit):
-            if !preserveStandaloneUnit, parser.dimensionCount == 1,
-                !split.expressionTokens.contains(.op("%")),
+            // A bare `50cm` belongs to the auto-conversion path below; once an operator is involved the
+            // answer stays in the units the user wrote, so `2 * 5kg` is `10 kg`, not `22.05 lb`.
+            if !preserveStandaloneUnit, parser.operationCount == 0, parser.dimensionCount == 1,
                 case .ident(let finalName)? = split.expressionTokens.last,
                 CalcUnits.byName[finalName] != nil
             {
@@ -321,7 +322,8 @@ private struct QuantityParser {
             operationCount += 1
             guard
                 let right = parseExpression(minBindingPower: binary.rightBindingPower),
-                let combined = apply(binary.op, left, right)
+                let combined = apply(
+                    binary.op, left, right, implicit: !binary.consumesToken)
             else { return nil }
             left = combined
         }
@@ -349,11 +351,11 @@ private struct QuantityParser {
     }
 
     private mutating func apply(
-        _ op: Character, _ left: QuantityValue, _ right: QuantityValue
+        _ op: Character, _ left: QuantityValue, _ right: QuantityValue, implicit: Bool
     ) -> QuantityValue? {
         switch op {
         case "+", "-":
-            return addOrSubtract(op, left, right)
+            return addOrSubtract(op, left, right, implicit: implicit)
         case "*":
             return multiply(left, right)
         case "/":
@@ -368,7 +370,7 @@ private struct QuantityParser {
     }
 
     private mutating func addOrSubtract(
-        _ op: Character, _ left: QuantityValue, _ right: QuantityValue
+        _ op: Character, _ left: QuantityValue, _ right: QuantityValue, implicit: Bool
     ) -> QuantityValue? {
         let direction = op == "+" ? 1.0 : -1.0
         if right.isPercent {
@@ -389,14 +391,26 @@ private struct QuantityParser {
             if lhs.category == .temperature, lhs.symbol != rhs.symbol {
                 return fail("Cannot combine temperatures with different units.")
             }
-            let converted = CalcQuantity.convertUnit(right.amount, from: rhs, to: lhs)
+            // Composite notation ("5 feet 3 inches") reads as one quantity in its leading unit; an explicit `+`/`-` answers in the last unit typed.
+            if implicit {
+                let converted = CalcQuantity.convertUnit(right.amount, from: rhs, to: lhs)
+                return QuantityValue(
+                    amount: left.amount + direction * converted, kind: .unit(lhs))
+            }
+            let converted = CalcQuantity.convertUnit(left.amount, from: lhs, to: rhs)
             return QuantityValue(
-                amount: left.amount + direction * converted, kind: .unit(lhs))
+                amount: converted + direction * right.amount, kind: .unit(rhs))
         case (.currency(let lhs), .currency(let rhs)):
-            guard let converted = convertedCurrency(right.amount, from: rhs, to: lhs)
+            if implicit {
+                guard let converted = convertedCurrency(right.amount, from: rhs, to: lhs)
+                else { return nil }
+                return QuantityValue(
+                    amount: left.amount + direction * converted, kind: .currency(lhs))
+            }
+            guard let converted = convertedCurrency(left.amount, from: lhs, to: rhs)
             else { return nil }
             return QuantityValue(
-                amount: left.amount + direction * converted, kind: .currency(lhs))
+                amount: converted + direction * right.amount, kind: .currency(rhs))
         case (.unit(let lhs), .currency):
             return fail(
                 "Cannot \(op == "+" ? "add" : "subtract") \(lhs.category.displayName) and Currency."
@@ -405,9 +419,16 @@ private struct QuantityParser {
             return fail(
                 "Cannot \(op == "+" ? "add" : "subtract") Currency and \(rhs.category.displayName)."
             )
-        // Silent, not an error: a dimensioned side against a bare number is what a half-typed unit looks like ("10kg + 5" on the way to "10kg + 5kg").
-        case (.unit, .scalar), (.scalar, .unit), (.currency, .scalar), (.scalar, .currency):
-            return nil
+        // A bare number takes the unit it is written against ("10kg + 5" is 15 kg). Adjacency stays
+        // silent instead, because there the bare number is a half-typed unit ("1hr 30" → "1hr 30min").
+        case (.unit, .scalar), (.currency, .scalar):
+            guard !implicit else { return nil }
+            return QuantityValue(
+                amount: left.amount + direction * right.effective, kind: left.kind)
+        case (.scalar, .unit), (.scalar, .currency):
+            guard !implicit else { return nil }
+            return QuantityValue(
+                amount: left.effective + direction * right.amount, kind: right.kind)
         }
     }
 

@@ -139,7 +139,7 @@ struct CalcTests {
         expectBadges("1hr", source: "Hours", target: "Minutes")
         expectDisplay("5ft", "1.524 m")
         expectDisplay("100g", "3.527396195 oz")
-        expectDisplay("2*3 kg", "13.22773573 lb")  // value side is a full expression
+        expectDisplay("2*3 kg", "6 kg")  // an operator keeps the answer in the units written
         expectDisplay("20 celsius", "68 °F")
         expectDisplay("50cm", "19.68503937 in")
         // Ambiguous single-letter aliases stay app searches, not bare temperatures
@@ -157,30 +157,30 @@ struct CalcTests {
         expectExpression("-5kg + 2kg", "-5 kg + 2 kg")
         expectExpression("5 feet 3 inches", "5 ft 3 in")
         expectBadges("10kg + 5kg", source: "Expression", target: "Kilograms")
-        expectDisplay("10kg + 10g", "10.01 kg")  // exact request from issue #64
-        expectDisplay("10kg + 500g", "10.5 kg")
-        expectDisplay("500g + 1kg", "1,500 g")
-        expectCopy("500g + 1kg", "1500 g")
-        expectDisplay("10lb + 5kg", "21.02311311 lb")
-        expectDisplay("1m + 50cm", "1.5 m")
-        expectDisplay("2hr + 30min", "2.5 hr")
-        expectDisplay("1GiB + 512MiB", "1.5 GiB")
-        expectDisplay("1L - 250mL", "0.75 L")
+        expectDisplay("10kg + 10g", "10,010 g")  // issue #64, answered in the last unit typed
+        expectDisplay("10kg + 500g", "10,500 g")
+        expectDisplay("500g + 1kg", "1.5 kg")
+        expectCopy("500g + 1kg", "1.5 kg")
+        expectDisplay("10lb + 5kg", "9.5359237 kg")
+        expectDisplay("1m + 50cm", "150 cm")
+        expectDisplay("2hr + 30min", "150 min")
+        expectDisplay("1GiB + 512MiB", "1,536 MiB")
+        expectDisplay("1L - 250mL", "750 mL")
         expectDisplay("-5kg + 2kg", "-3 kg")
-        expectDisplay("-(2kg + 500g)", "-2.5 kg")
+        expectDisplay("-(2kg + 500g)", "-2,500 g")
         expectDisplay("10 pounds + 5 pounds", "15 lb")  // unit wins the currency collision
-        expectDisplay("1m² + 10ft²", "1.9290304 m²")
-        expectDisplay("1L + 1cup", "1.236588237 L")
-        expectDisplay("1GB + 1GiB", "2.073741824 GB")
-        expectDisplay("90deg + 1rad", "147.2957795 deg")
-        expectDisplay("60mph + 10kmh", "66.21371192 mph")
-        expectDisplay("1bar + 10psi", "1.689475729 bar")
-        expectDisplay("1Gbps + 500Mbps", "1.5 Gbps")
+        expectDisplay("1m² + 10ft²", "20.76391042 ft²")
+        expectDisplay("1L + 1cup", "5.226752838 cup")
+        expectDisplay("1GB + 1GiB", "1.931322575 GiB")
+        expectDisplay("90deg + 1rad", "2.570796327 rad")
+        expectDisplay("60mph + 10kmh", "106.56064 km/h")
+        expectDisplay("1bar + 10psi", "24.50377377 psi")
+        expectDisplay("1Gbps + 500Mbps", "1,500 Mbps")
 
         // Unit-expression precedence, parentheses, scalar operations, and cancellation
         expectDisplay("10kg + 2 * 5kg", "20 kg")
         expectDisplay("(10kg + 5kg) * 2", "30 kg")
-        expectDisplay("2 * (3kg + 500g)", "7 kg")
+        expectDisplay("2 * (3kg + 500g)", "7,000 g")
         expectDisplay("20kg / 2 + 3kg", "13 kg")
         expectDisplay("20kg / (2 + 3)", "4 kg")
         expectDisplay("5kg * 3", "15 kg")
@@ -193,7 +193,7 @@ struct CalcTests {
         expectDisplay("10kg / (2 * 5)", "1 kg")
         expectDisplay("(10kg * 3) / 5kg", "6")
         expectDisplay("10kg / (5kg / 2)", "4")
-        expectDisplay("(2kg + 500g) * 4", "10 kg")
+        expectDisplay("(2kg + 500g) * 4", "10,000 g")
         expectDisplay("(20kg - 5kg) / 3", "5 kg")
 
         // Percentages carry through quantity arithmetic
@@ -224,8 +224,8 @@ struct CalcTests {
         expectDisplay("10k +", "10,000")
         expectCopy("10k +", "10000")
         expectDisplay("10kg *", "10 kg")
-        expectDisplay("10kg + 500g +", "10.5 kg")
-        expectDisplay("(10kg + 500g) *", "10.5 kg")
+        expectDisplay("10kg + 500g +", "10,500 g")
+        expectDisplay("(10kg + 500g) *", "10,500 g")
         expectDisplay("10kg * 3% +", "0.3 kg")
         expectDisplay("20% of 450 +", "90")
         expectBadges("10 +", source: "Expression", target: "Result")
@@ -250,9 +250,16 @@ struct CalcTests {
         expectBadges("(1kg + 500g) to lb", source: "Expression", target: "Pounds")
         expectError("(1kg + 500g) to m", "Cannot convert Weight to Length.")
 
-        // Adjacent compatible quantities are additive, matching common composite-unit notation
+        // Adjacent compatible quantities are additive, matching common composite-unit notation.
+        // Composite reads as one quantity in its leading unit; an explicit operator answers in the last.
         expectDisplay("5 feet 3 inches to cm", "160.02 cm")
+        expectDisplay("5 feet 3 inches", "5.25 ft")
         expectDisplay("1hr 30min", "1.5 hr")
+        expectDisplay("5feet + 1m", "2.524 m")
+        expectBadges("5feet + 1m", source: "Expression", target: "Meters")
+        expectDisplay("1kg + 500g + 2lb", "5.306933933 lb")  // chained: the last unit wins
+        expectDisplay("2 * 5kg", "10 kg")
+        expectDisplay("3 * 2m", "6 m")
 
         // Affine temperatures only combine in the same unit; mixed absolute scales are ambiguous
         expectDisplay("20 celsius + 10 celsius", "30 °C")
@@ -264,13 +271,17 @@ struct CalcTests {
         // Clear dimensional mistakes are errors; incomplete or non-finite input stays silent
         expectError("1kg + 1m", "Cannot add Weight and Length.")
         expectError("1kg + 1hr", "Cannot add Weight and Time.")
-        // A unit against a bare number is a half-typed unit, not a mistake worth an error card
-        expectNil("1kg + 1")
-        expectNil("10kg + 5")  // mid-way through "10kg + 5kg"
+        // A bare number written against a quantity takes its unit
+        expectDisplay("1kg + 1", "2 kg")
+        expectDisplay("10kg + 5", "15 kg")
+        expectDisplay("5kg+5", "10 kg")
+        expectDisplay("5 + 10kg", "15 kg")
+        expectDisplay("$10 + 5", "15.00 USD")
+        expectBadges("5kg+5", source: "Expression", target: "Kilograms")
+        expectDisplay("10kg + -20%", "9.8 kg")  // unary minus drops percent, as in `450 + -20%`
+        // Adjacency is different: there a bare number is a unit still being typed, so it stays silent
         expectNil("1hr 30")  // mid-way through "1hr 30min"
         expectNil("5 feet 3")  // mid-way through "5 feet 3 inches"
-        expectNil("$10 + 5")
-        expectNil("10kg + -20%")
         expectError(
             "1kg * 1m",
             "Multiplication of two unit values is not supported.")
@@ -450,8 +461,8 @@ struct CalcTests {
         expectBadges("10$", source: "Expression", target: "US Dollar")
         expectDisplay("$10 + $5", "15.00 USD")
         expectDisplay("10$ + 5$", "15.00 USD")
-        expectDisplay("$10 + €5", "15.43 USD")
-        expectDisplay("€5 + $10", "14.20 EUR")
+        expectDisplay("$10 + €5", "14.20 EUR")
+        expectDisplay("€5 + $10", "15.43 USD")
         // Sign-first money echoes amount-first, like every other quantity
         expectExpression("$10 + €5", "10 USD + 5 EUR")
         expectExpression("10$ + 5€", "10 USD + 5 EUR")
