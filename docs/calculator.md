@@ -103,6 +103,26 @@ earns them a card on their own (`1e6` → `1,000,000`) where a plain lone litera
 `min` and `sec` are both function names and time-unit aliases. The unit path runs before plain
 arithmetic, so `90 min to hr` is time and `min(3, 9)` is the function; neither shadows the other.
 
+## Percentages
+
+`X% of Y` and `Y ± X%` fall out of the `of` operator and the percent postfix, so they live in
+`CalcParser`. Everything phrased as English lives in `CalcPercent`, which shares one `split` helper:
+it locates a keyword run, optionally anchored by opening words and an opening `%`, and evaluates each
+side as ordinary arithmetic.
+
+- **Discount / markup / tip** — `20% off 500`, `8% on 250`, `15% tip on 42`. A tip answers with the
+  total, because that's the number you pay; the tip itself goes in the expression echo and the badge
+  reads `Total`.
+- **Ratios** — `50 as % of 200`, `3 out of 4` (the phrasing people use for scores), and
+  `ratio of 10 to 4`, which reduces by the gcd to `5:2` and requires whole numbers.
+- **Change vs difference** — deliberately two formulas, because they answer different questions.
+  `% change from 20 to 30` is signed and relative to the starting value (50%); `% difference between
+  20 and 30` is symmetric and relative to the mean (40%, either way round). `% change from 0 to 10`
+  has no baseline, so it stays silent rather than reporting infinity.
+
+Every form needs its keyword *and* both operands, so the bare words — `tip`, `ratio`, `out of`,
+`% change` — and half-typed phrases like `10% off` or `tip on 42` remain app searches.
+
 ## Currency
 
 `CalcCurrency` mirrors `CalcUnits`' shape: a lookup table plus a `parseConversion` over the same

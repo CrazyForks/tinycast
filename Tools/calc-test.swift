@@ -76,8 +76,7 @@ struct CalcTests {
         expectDisplay("sign(0)", "0")
 
         // Two-argument functions — a comma picks the binary reading, so `log` serves both bases
-        expectDisplay("log(8, 2)", "3")
-        expectDisplay("log(1000)", "3")
+        expectDisplay("log(8, 2)", "3")  // ...while the unary `log(1000)` above stays base 10
         expectDisplay("min(3, 9)", "3")
         expectDisplay("max(3, 9)", "9")
         expectDisplay("pow(2, 10)", "1,024")
@@ -150,6 +149,39 @@ struct CalcTests {
         expectDisplay("450 + 20%", "540")
         expectDisplay("450 - 15%", "382.5")
         expectDisplay("20%", "0.2")
+
+        // Discounts, markup and tips
+        expectDisplay("8% on 250", "270")  // markup
+        expectDisplay("15% tip on 42", "48.3")
+        expectBadges("15% tip on 42", source: "Expression", target: "Total")
+        expectExpression("15% tip on 42", "15% tip on 42  (tip 6.3)")
+
+        // Ratios
+        expectDisplay("50 as percent of 200", "25%")  // `percent` folds to `%`
+        expectDisplay("3 out of 4", "75%")
+        expectDisplay("1 out of 3", "33.33333333%")
+        expectDisplay("ratio of 3 to 5", "3:5")
+        expectDisplay("ratio of 10 to 4", "5:2")  // reduced by the gcd
+        expectNil("ratio of 2.5 to 5")  // a ratio needs whole numbers
+
+        // Change and difference are deliberately different formulas
+        expectDisplay("% change from 20 to 30", "50%")
+        expectDisplay("% change from 30 to 20", "-33.33333333%")
+        expectDisplay("percent change from 20 to 30", "50%")
+        expectDisplay("% difference between 20 and 30", "40%")
+        expectDisplay("% difference between 30 and 20", "40%")  // symmetric, unlike change
+        expectNil("% change from 0 to 10")  // no baseline to change from
+
+        // Keywords alone, or with an operand missing, stay searches
+        expectNil("tip")
+        expectNil("ratio")
+        expectNil("out of")
+        expectNil("get out of jail")
+        expectNil("% change")
+        expectNil("ratio of")
+        expectNil("10% off")
+        expectNil("tip on 42")
+        expectNil("% difference between 20")
 
         // Unit conversion — length / weight / temperature / time / area / volume / storage
         expectDisplay("10km to mi", "6.213711922 mi")
